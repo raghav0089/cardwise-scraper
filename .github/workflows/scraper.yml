@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────
+# CardWise Card Scraper — Daily Cron
+#
+# TO ENABLE DAILY: uncomment the `schedule` block
+# TO DISABLE:      comment out the `schedule` block
+# TO RUN MANUALLY: GitHub → Actions → Run workflow
+# ─────────────────────────────────────────────────────
+
+name: Card Scraper
+
+on:
+  workflow_dispatch:        # manual trigger always available
+  # schedule:               # ← UNCOMMENT TO ENABLE DAILY
+  #   - cron: '0 2 * * *'  # runs at 2am UTC (7:30am IST) every day
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120    # 2hr max — way more than Lambda's 15min limit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd cardwise_scraper
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps
+
+      - name: Run scraper
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION:    ap-south-1
+        run: |
+          cd cardwise_scraper
+          python main.py
+
+      - name: Upload run logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-logs-${{ github.run_id }}
+          path: cardwise_scraper/logs/
+          retention-days: 30
