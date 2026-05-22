@@ -3,7 +3,8 @@
 Strategy:
   1. Try Firecrawl for all URLs (handles JS-rendered SPAs and Cloudflare-
      protected sites like HDFC, ICICI, IDFC, Yes Bank).
-  2. Fall back to plain requests + BS4 only for domains NOT in
+  2. Fall back to free Jina AI Reader API if Firecrawl fails or hits payment walls.
+  3. Fall back to plain requests + BS4 only for domains NOT in
      FIRECRAWL_ONLY_DOMAINS.
 
 FetchResult unpacks as a 4-tuple (text, html, status_code, etag) so all
@@ -13,7 +14,7 @@ existing callers work unchanged:
     result = fetch(url); result.ok             # also works
 """
 from __future__ import annotations
-import os, logging, hashlib
+import os, logging, hashlib, urllib3
 from dataclasses import dataclass
 from typing import Optional, Iterator
 from urllib.parse import urlparse, urljoin
@@ -28,12 +29,14 @@ from tenacity import (
 )
 
 log = logging.getLogger(__name__)
-UA = "Mozilla/5.0 (compatible; PlentiCardBot/1.0; +https://plenti.app/bot)"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 TIMEOUT = 45  # raised from 30 — Yes Bank times out at 30 s
 
+# Suppress insecure platform warnings from verify=False logic
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # Domains that actively block plain requests (WAF / Cloudflare / JS-only).
-# For these we ONLY try Firecrawl and skip the requests.get fallback entirely,
-# because the fallback just burns retries on a guaranteed 403/429.
+# For these, we skip standard requests.get entirely to prevent 403 blocks.
 FIRECRAWL_ONLY_DOMAINS: frozenset[str] = frozenset({
     "hdfcbank.com",
     "icicibank.com",
@@ -44,8 +47,9 @@ FIRECRAWL_ONLY_DOMAINS: frozenset[str] = frozenset({
     "sbi.co.in",
     "sbicard.com",
     "indusind.com",
-    "bandhanbank.com",       # Added to handle proxy blockades
-    "southindianbank.com",   # Added to prevent parsing failures
+    "bandhanbank.com",       
+    "southindianbank.com",   
+    "kvb.co.in"
 })
 
 
@@ -108,6 +112,21 @@ def _try_firecrawl(url: str) -> Optional[FetchResult]:
         return FetchResult(error=str(e))
 
 
+# ── Jina AI Free Fallback ─────────────────────────────────────────────────────
+
+def _try_jina(url: str) -> Optional[FetchResult]:
+    """Free alternative to process pages with heavy client JS or proxy blocks."""
+    try:
+        jina_url = f"https://r.jina.ai/{url}"
+        r = requests.get(jina_url, headers={"User-Agent": UA}, timeout=TIMEOUT, verify=False)
+        if r.status_code == 200 and r.text:
+            return FetchResult(text=r.text, html=r.text, status_code=200)
+        return None
+    except Exception as e:
+        log.warning("Jina fallback failed for %s: %s", url, e)
+        return None
+
+
 # ── requests fallback ─────────────────────────────────────────────────────────
 
 @retry(
@@ -117,7 +136,13 @@ def _try_firecrawl(url: str) -> Optional[FetchResult]:
     reraise=True,
 )
 def _try_requests(url: str) -> FetchResult:
-    r = requests.get(url, headers={"User-Agent": UA}, timeout=TIMEOUT)
+    # Set headers with browser-grade properties to circumvent SSLv3 alerts & handshakes
+    headers = {
+        "User-Agent": UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+    r = requests.get(url, headers=headers, timeout=TIMEOUT, verify=False)
     r.raise_for_status()
     html = r.text
     return FetchResult(
@@ -133,26 +158,33 @@ def _try_requests(url: str) -> FetchResult:
 def fetch(url: str, *, prefer: str = "auto") -> FetchResult:
     """Fetch *url* and return a FetchResult (also iterable as a 4-tuple).
 
-    prefer="auto"       — Firecrawl first; plain requests fallback only for
-                          domains NOT in FIRECRAWL_ONLY_DOMAINS.
-    prefer="firecrawl"  — Firecrawl only, no fallback.
-    prefer="requests"   — plain requests only (skips Firecrawl entirely).
+    prefer="auto"       — Firecrawl first, then Jina AI; plain requests fallback
+                          only for domains NOT in FIRECRAWL_ONLY_DOMAINS.
+    prefer="firecrawl"  — Firecrawl/Jina only, no plain requests fallback.
+    prefer="requests"   — plain requests only (skips Firecrawl and Jina entirely).
     """
     fc_only = prefer == "firecrawl" or (
         prefer == "auto" and _root_domain(url) in FIRECRAWL_ONLY_DOMAINS
     )
 
-    # --- Firecrawl pass ---
+    # --- Pass 1: Firecrawl ---
     if prefer != "requests":
         result = _try_firecrawl(url)
         if result and result.ok:
             return result
-        if fc_only:
-            log.warning("firecrawl-only domain fetch failed %s: %s",
-                        url, result.error if result else "no FIRECRAWL_API_KEY")
-            return result or FetchResult(error="no FIRECRAWL_API_KEY configured")
+        
+        # --- Pass 2: Jina AI Reader Fallback (Free & handles JS) ---
+        log.info("Attempting free Jina reader fallback engine for %s", url)
+        jina_result = _try_jina(url)
+        if jina_result and jina_result.ok:
+            return jina_result
 
-    # --- requests fallback (non-protected domains only) ---
+        if fc_only:
+            log.warning("firecrawl/jina domain fetch failed %s: %s",
+                        url, result.error if result else "no API engine available")
+            return jina_result or result or FetchResult(error="All processing engines failed")
+
+    # --- Pass 3: Standard Requests Fallback (unprotected sites only) ---
     try:
         return _try_requests(url)
     except requests.Timeout:
