@@ -1,0 +1,316 @@
+# Seed list of Indian card issuers with the listing pages where they publish
+# their card portfolio. The scraper visits `list_urls` first, harvests every
+# product detail link, then scrapes those detail pages for full benefits.
+# Add an issuer here when a new bank/neobank launches a card programme.
+
+issuers:
+
+  # ---------- Private banks ----------
+  - id: hdfc
+    name: HDFC Bank
+    type: bank
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards
+      - https://www.hdfcbank.com/personal/pay/cards/debit-cards
+      - https://www.hdfcbank.com/personal/pay/cards/business-credit-card
+    detail_link_pattern: "/personal/pay/cards/.*-card"
+
+  - id: icici
+    name: ICICI Bank
+    type: bank
+    list_urls:
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/debit-card
+    detail_link_pattern: "/credit-card/|/debit-card/"
+
+  - id: axis
+    name: Axis Bank
+    type: bank
+    list_urls:
+      - https://www.axisbank.com/retail/cards/credit-card
+      - https://www.axisbank.com/retail/cards/debit-card
+    detail_link_pattern: "/retail/cards/"
+
+  - id: sbi_card
+    name: SBI Card
+    type: bank
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards.page
+    detail_link_pattern: "/credit-cards/.*\\.page$"
+
+  - id: kotak
+    name: Kotak Mahindra Bank
+    type: bank
+    list_urls:
+      - https://www.kotak.com/en/personal-banking/cards/credit-cards.html
+      - https://www.kotak.com/en/personal-banking/cards/debit-cards.html
+
+  - id: idfc_first
+    name: IDFC FIRST Bank
+    type: bank
+    list_urls:
+      - https://www.idfcfirstbank.com/credit-card
+      - https://www.idfcfirstbank.com/debit-card
+
+  - id: yes
+    name: YES Bank
+    type: bank
+    list_urls:
+      - https://www.yesbank.in/personal-banking/yes-individual/cards/credit-cards
+      - https://www.yesbank.in/personal-banking/yes-individual/cards/debit-cards
+
+  - id: indusind
+    name: IndusInd Bank
+    type: bank
+    list_urls:
+      - https://www.indusind.com/in/en/personal/cards/credit-card.html
+      - https://www.indusind.com/in/en/personal/cards/debit-card.html
+
+  - id: rbl
+    name: RBL Bank
+    type: bank
+    list_urls:
+      - https://www.rblbank.com/category/personal-banking-credit-cards
+      - https://www.rblbank.com/category/personal-banking-debit-cards
+
+  - id: standard_chartered
+    name: Standard Chartered India
+    type: bank
+    list_urls:
+      - https://www.sc.com/in/credit-cards/
+
+  - id: hsbc
+    name: HSBC India
+    type: bank
+    list_urls:
+      - https://www.hsbc.co.in/credit-cards/
+
+  - id: citi  # portfolio absorbed into Axis but keep for legacy
+    name: Citi India (Axis)
+    type: bank
+    list_urls:
+      - https://www.online.citibank.co.in/credit-card/credit-cards.htm
+
+  - id: idbi
+    name: IDBI Bank
+    type: bank
+    list_urls:
+      - https://www.idbibank.in/credit-card.aspx
+
+  - id: federal
+    name: Federal Bank
+    type: bank
+    list_urls:
+      - https://www.federalbank.co.in/credit-cards
+
+  - id: au_sfb
+    name: AU Small Finance Bank
+    type: bank
+    list_urls:
+      - https://www.aubank.in/personal-banking/credit-card
+
+  - id: bandhan
+    name: Bandhan Bank
+    type: bank
+    list_urls:
+      - https://www.bandhanbank.com/personal/cards/credit-card
+
+  - id: south_indian
+    name: South Indian Bank
+    type: bank
+    list_urls:
+      - https://www.southindianbank.com/content/cards/3398
+
+  - id: karur_vysya
+    name: Karur Vysya Bank
+    type: bank
+    list_urls:
+      - https://www.kvb.co.in/personal-banking/cards/credit-cards/
+
+  # ---------- PSU banks ----------
+  - id: bob
+    name: Bank of Baroda
+    type: bank
+    list_urls:
+      - https://www.bobfinancial.com/credit-card.jsp
+
+  - id: pnb
+    name: PNB / PNB Cards
+    type: bank
+    list_urls:
+      - https://www.pnbindia.in/credit-card.html
+
+  - id: canara
+    name: Canara Bank
+    type: bank
+    list_urls:
+      - https://canarabank.com/pages/Credit-Card-13
+
+  - id: union
+    name: Union Bank of India
+    type: bank
+    list_urls:
+      - https://www.unionbankofindia.co.in/english/Credit-Cards.aspx
+
+  - id: indian_bank
+    name: Indian Bank
+    type: bank
+    list_urls:
+      - https://www.indianbank.in/departments/credit-card/
+
+  # ---------- Networks issuing co-brands ----------
+  - id: amex
+    name: American Express India
+    type: network
+    list_urls:
+      - https://www.americanexpress.com/in/credit-cards/
+
+  - id: diners  # under HDFC in India but list separately for discovery
+    name: Diners Club India
+    type: network
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/diners-club
+
+  # ---------- Neobanks / fintech co-brand issuers ----------
+  - id: onecard
+    name: OneCard (FPL Technologies)
+    type: neobank
+    list_urls:
+      - https://www.getonecard.app/
+
+  - id: cred
+    name: CRED
+    type: neobank
+    list_urls:
+      - https://cred.club/cred-cards
+      - https://cred.club/credit-cards
+
+  - id: jupiter
+    name: Jupiter
+    type: neobank
+    list_urls:
+      - https://jupiter.money/edge-csb-bank-rupay-credit-card/
+      - https://jupiter.money/
+
+  - id: fi
+    name: Fi Money
+    type: neobank
+    list_urls:
+      - https://fi.money/credit-cards
+
+  - id: niyo
+    name: Niyo
+    type: neobank
+    list_urls:
+      - https://www.goniyo.com/
+
+  - id: slice
+    name: slice (North East SFB)
+    type: neobank
+    list_urls:
+      - https://www.sliceit.com/
+
+  - id: uni
+    name: Uni Cards
+    type: neobank
+    list_urls:
+      - https://www.uni.cards/
+
+  - id: kiwi
+    name: Kiwi (RuPay CC on UPI)
+    type: neobank
+    list_urls:
+      - https://kiwi.club/
+
+  - id: super_money
+    name: Super.money (Flipkart)
+    type: neobank
+    list_urls:
+      - https://super.money/
+
+  - id: paytm
+    name: Paytm
+    type: neobank
+    list_urls:
+      - https://paytm.com/credit-card
+      - https://business.paytm.com/credit-card
+
+  - id: zaggle
+    name: Zaggle
+    type: neobank
+    list_urls:
+      - https://www.zaggle.in/
+
+  - id: open
+    name: Open Money
+    type: neobank
+    list_urls:
+      - https://open.money/
+
+  - id: razorpayx
+    name: RazorpayX
+    type: neobank
+    list_urls:
+      - https://razorpay.com/x/corporate-cards/
+
+  - id: karbon
+    name: Karbon Card
+    type: neobank
+    list_urls:
+      - https://karboncard.com/
+
+  - id: emkay  # corporate
+    name: EnKash
+    type: neobank
+    list_urls:
+      - https://www.enkash.com/
+
+  - id: niro
+    name: Niro
+    type: neobank
+    list_urls:
+      - https://niro.money/
+
+  # ---------- Co-brand programmes (consumer) ----------
+  - id: tata_neu
+    name: Tata Neu (HDFC co-brand)
+    type: cobrand
+    list_urls:
+      - https://www.tataneu.com/tata-neu-card
+  - id: flipkart_axis
+    name: Flipkart Axis
+    type: cobrand
+    list_urls:
+      - https://www.axisbank.com/retail/cards/credit-card/flipkart-axis-bank-credit-card
+  - id: amazon_pay_icici
+    name: Amazon Pay ICICI
+    type: cobrand
+    list_urls:
+      - https://www.amazon.in/amazonpay/icicibank/creditcard
+  - id: myntra_kotak
+    name: Myntra Kotak
+    type: cobrand
+    list_urls:
+      - https://www.kotak.com/en/personal-banking/cards/credit-cards/myntra-kotak-credit-card.html
+  - id: swiggy_hdfc
+    name: Swiggy HDFC
+    type: cobrand
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card
+
+  # ---------- Forex / transit / prepaid ----------
+  - id: niyo_global
+    name: Niyo Global Forex
+    type: forex
+    list_urls:
+      - https://www.goniyo.com/niyo-global-card/
+  - id: bookmyforex
+    name: BookMyForex
+    type: forex
+    list_urls:
+      - https://www.bookmyforex.com/forex-card/
+  - id: scapia
+    name: Scapia (Federal Bank)
+    type: forex
+    list_urls:
+      - https://www.scapia.cards/

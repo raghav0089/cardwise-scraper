@@ -1,0 +1,48 @@
+# Sources for discovering NEWLY LAUNCHED cards or DEVALUATIONS.
+# Discovery job crawls these, extracts URLs that mention "credit card",
+# "debit card", "launches", "devaluation", "revised", etc., then pipes
+# them into the issuer scraper as ad-hoc candidates.
+
+sources:
+  # Specialist card blogs (highest signal)
+  - https://cardinsider.com/blog/
+  - https://www.cardexpert.in/
+  - https://www.live-from-a-lounge.com/category/credit-cards/india/
+  - https://www.paisabazaar.com/credit-cards-news/
+  - https://www.bankbazaar.com/credit-card.html
+  - https://creditcardz.in/
+  - https://technofino.in/category/credit-cards/
+  - https://www.cardmaven.in/
+
+  # Mainstream finance press
+  - https://www.livemint.com/topic/credit-cards
+  - https://economictimes.indiatimes.com/topic/credit-cards
+  - https://www.business-standard.com/topic/credit-cards
+  - https://www.thehindubusinessline.com/topic/credit-cards/
+  - https://www.moneycontrol.com/news/tags/credit-cards.html
+  - https://www.financialexpress.com/tag/credit-cards/
+
+  # Regulator (devaluation context, MDR, RuPay-on-UPI rules)
+  - https://www.rbi.org.in/Scripts/NotificationUser.aspx
+  - https://www.npci.org.in/what-we-do/rupay/product-overview
+
+# Discovery keywords (case-insensitive) used to keep links worth scraping
+keywords:
+  - "credit card"
+  - "debit card"
+  - "forex card"
+  - "co-brand"
+  - "co branded"
+  - "launches"
+  - "launched"
+  - "introduces"
+  - "revised"
+  - "devalu"
+  - "milestone"
+  - "lounge"
+  - "reward rate"
+
+# How far to crawl from each seed
+crawl:
+  max_pages_per_source: 60
+  max_depth: 2
