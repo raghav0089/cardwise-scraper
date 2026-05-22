@@ -10,3 +10,4 @@ python-dateutil>=2.9
 rapidfuzz>=3.9
 firecrawl-py>=1.6
 tldextract>=5.1
+playwright>=1.54
