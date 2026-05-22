@@ -10,7 +10,7 @@ from __future__ import annotations
 import os, json, logging
 from pathlib import Path
 from jsonschema import Draft7Validator
-import google.generativeai as genai
+from google import genai
 
 log = logging.getLogger(__name__)
 SCHEMA    = json.loads(Path("schema/card.schema.json").read_text())
@@ -32,6 +32,7 @@ IndianCard schema. RULES:
 - Be conservative: leave a field null rather than guess. Set "confidence"
   between 0 and 1 reflecting how complete the page was.
 - card_id = "<issuer_id>__<slug-of-card_name>".
+- Always populate the "source_url" field inside each card record with the exact matching URL from its corresponding document header section.
 - Return ONLY the JSON object. No markdown fences, no preamble."""
 
 _client = None
@@ -39,55 +40,70 @@ _client = None
 def _model():
     global _client
     if _client is None:
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        _client = genai.GenerativeModel(
-            model_name=MODEL,
-            generation_config={
-                "temperature": 0,
-                "response_mime_type": "application/json",
-            },
-            system_instruction=SYSTEM,
+        _client = genai.Client(
+            api_key=os.environ["GEMINI_API_KEY"]
         )
     return _client
 
 
-def extract_cards(
-    markdown: str,
-    *,
-    source_url: str,
-    issuer_id: str | None,
-    issuer_name: str | None,
-) -> list[dict]:
-    if not markdown or len(markdown) < 200:
+def extract_cards(batch: list[dict]) -> list[dict]:
+    """Extracts payment card items from a batch of markdown structures simultaneously.
+    
+    Each item in 'batch' expects:
+      {"markdown": str, "source_url": str, "issuer_id": str, "issuer_name": str}
+    """
+    if not batch:
         return []
 
-    user_msg = (
-        f"SOURCE_URL: {source_url}\n"
-        f"ISSUER_ID_HINT: {issuer_id or ''}\n"
-        f"ISSUER_NAME_HINT: {issuer_name or ''}\n\n"
-        f"PAGE_MARKDOWN (truncated to 25k chars):\n{markdown[:25000]}"
-    )
+    # Pack multiple page payloads into a single context string to dramatically save daily quota limits
+    batch_contents = []
+    for idx, row in enumerate(batch):
+        md = row.get("markdown") or ""
+        batch_contents.append(
+            f"--- DOCUMENT MATCH INDEX: {idx} ---\n"
+            f"SOURCE_URL: {row['source_url']}\n"
+            f"ISSUER_ID_HINT: {row.get('issuer_id') or ''}\n"
+            f"ISSUER_NAME_HINT: {row.get('issuer_name') or ''}\n\n"
+            f"PAGE_MARKDOWN (truncated):\n{md[:15000]}\n"
+            f"--- END DOCUMENT INDEX {idx} ---\n"
+        )
+    
+    user_msg = "\n".join(batch_contents)
 
     try:
-        resp = _model().generate_content(user_msg)
-        raw  = resp.text
+        # We leverage the native structured schema output capability in the SDK config.
+        # This completely guarantees that resp.text will follow your required JSON format.
+        resp = _model().models.generate_content(
+            model=MODEL,
+            contents=f"{SYSTEM}\n\n{user_msg}",
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": SCHEMA,
+            }
+        )
+        raw = resp.text
     except Exception as e:
-        _log_error(source_url, e)
+        _log_error(batch[0]["source_url"] if batch else "unknown_batch", e)
         return []
 
     try:
-        clean   = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        payload = json.loads(clean)
+        # Gemini structured outputs return pure JSON directly.
+        # No markdown fences or formatting wrappers to strip!
+        payload = json.loads(resp.text.strip())
     except Exception as e:
-        log.warning("JSON parse failed for %s: %s", source_url, e)
+        log.warning("JSON parse failed on aggregated batch payload: %s", e)
         return []
 
     cards = payload.get("cards") or []
     out   = []
     for c in cards:
-        c.setdefault("issuer_id",   issuer_id)
-        c.setdefault("issuer_name", issuer_name)
-        c["source_url"] = source_url
+        url_ref = c.get("source_url") or (batch[0]["source_url"] if batch else "")
+        matched_row = next((r for r in batch if r["source_url"] == url_ref), batch[0] if batch else {})
+
+        c.setdefault("issuer_id",   matched_row.get("issuer_id"))
+        c.setdefault("issuer_name", matched_row.get("issuer_name"))
+        c["source_url"] = url_ref
+        
         errs = sorted(VALIDATOR.iter_errors(c), key=lambda e: e.path)
         if errs:
             log.info("schema fix-ups for %s: %s",
@@ -101,7 +117,7 @@ def _log_error(source_url: str, exc: Exception) -> None:
     if "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower():
         log.error(
             "Gemini free-tier daily quota hit (1,500 req/day). "
-            "Resets at midnight PT — or upgrade at https://aistudio.google.com  "
+            "Resets at midnight PT — or upgrade at [https://aistudio.google.com](https://aistudio.google.com)  "
             "Skipping %s", source_url,
         )
     elif "API_KEY" in msg or "401" in msg:
