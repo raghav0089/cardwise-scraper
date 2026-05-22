@@ -70,8 +70,9 @@ issuers:
     name: RBL Bank
     type: bank
     list_urls:
-      - https://www.rblbank.com/category/personal-banking-credit-cards
-      - https://www.rblbank.com/category/personal-banking-debit-cards
+      - https://www.rbl.bank.in/personal-banking/cards/credit-cards
+      - https://www.rbl.bank.in/personal-banking/cards/credit-cards/category
+      - https://www.rbl.bank.in/personal-banking/cards/debit-cards
 
   - id: standard_chartered
     name: Standard Chartered India
@@ -101,7 +102,7 @@ issuers:
     name: AU Small Finance Bank
     type: bank
     list_urls:
-      - https://www.aubank.in/personal-banking/credit-card
+      - https://www.au.bank.in/personal-banking/credit-cards
 
   - id: bandhan
     name: Bandhan Bank
@@ -131,6 +132,14 @@ issuers:
     list_urls:
       - https://www.bobcard.co.in/credit-card-types        # primary — bobfinancial.com is defunct
       - https://bankofbaroda.bank.in/digital-products/cards/credit-cards
+    detail_link_pattern: "/credit-card"
+
+
+  - id: bajaj
+    name: Bajaj Finserv (BOBCARD)
+    type: bank
+    list_urls:
+      - https://www.bajajfinserv.in/webform/v1/emicard/login       # primary — bobfinancial.com is defunct
     detail_link_pattern: "/credit-card"
 
   - id: pnb
@@ -353,11 +362,6 @@ issuers:
       - https://www.sbicard.com/en/personal/credit-cards/shopping/ola-money-sbi-card.page
 
   # ---------- Forex / transit / prepaid ----------
-  - id: niyo_global
-    name: Niyo Global Forex
-    type: forex
-    list_urls:
-      - https://www.goniyo.com/niyo-global-card/
 
   - id: bookmyforex
     name: BookMyForex

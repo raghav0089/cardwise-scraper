@@ -1,16 +1,10 @@
 """Fetch HTML / markdown for a URL.
 
 Strategy:
-  1. Try free Jina AI Reader API first for protected, JavaScript-heavy, or WAF/Cloudflare
-     blocked domains (like HDFC, ICICI, Axis, Yes Bank, KVB, South Indian Bank).
-  2. Fall back to clean plain requests + BS4 text extraction only for standard,
-     unprotected domains not listed in JINA_RECOMMENDED_DOMAINS.
-
-FetchResult unpacks as a 4-tuple (text, html, status_code, etag) so all
-existing callers work unchanged:
-
-    md, html, status, etag = fetch(url)        # still works
-    result = fetch(url); result.ok             # also works
+  1. Try free Jina AI Reader API first for ALL domains (handles JS-rendering,
+     bypasses strict bank firewalls, corrects geo-routing/redirect issues).
+  2. Fall back to plain requests + BS4 text extraction only if Jina is down
+     and the domain is NOT in standard proxy protection lists.
 """
 from __future__ import annotations
 import logging, hashlib, urllib3
@@ -29,43 +23,29 @@ from tenacity import (
 
 log = logging.getLogger(__name__)
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-TIMEOUT = 45  # Yes Bank and heavy portals require higher timeout cushions
+TIMEOUT = 45
 
-# Suppress noisy insecure platform warnings printed by verify=False configurations
+# Suppress insecure platform connection pool warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# High-security banking domains that block basic requests fingerprints outright.
-# For these, we skip standard requests completely and only use Jina's headless wrapper.
-JINA_RECOMMENDED_DOMAINS: frozenset[str] = frozenset({
-    "hdfcbank.com",
-    "icicibank.com",
-    "idfcfirstbank.com",
-    "yesbank.in",
-    "axisbank.com",
-    "kotak.com",
-    "sbi.co.in",
-    "sbicard.com",
-    "indusind.com",
-    "bandhanbank.com",       
-    "southindianbank.com",   
-    "kvb.co.in"
+# High-security domains that must never drop down to basic requests (will guarantee a block)
+STRICT_PROXY_DOMAINS: frozenset[str] = frozenset({
+    "hdfcbank.com", "icicibank.com", "idfcfirstbank.com", "yesbank.in",
+    "axisbank.com", "kotak.com", "sbi.co.in", "sbicard.com", "indusind.com",
+    "bandhanbank.com", "southindianbank.com", "kvb.co.in", "rblbank.com",
+    "canarabank.com", "cred.club", "jupiter.money", "fi.money", "super.money",
+    "amazon.in", "goniyo.com", "technofino.in", "cardexpert.in", "live-from-a-lounge.com"
 })
 
 
 @dataclass
 class FetchResult:
-    """Return value of fetch().
-
-    Unpacks as a 4-tuple so legacy callers are unaffected:
-        md, html, status, etag = fetch(url)
-    """
     text: str = ""
     html: str = ""
     status_code: int = 0
     etag: Optional[str] = None
     error: Optional[str] = None
 
-    # ── tuple protocol ────────────────────────────────────────────────────
     def __iter__(self) -> Iterator:
         yield self.text
         yield self.html
@@ -83,10 +63,10 @@ class FetchResult:
         return bool(self.text or self.html) and self.error is None
 
 
-# ── Jina AI Free Engine ───────────────────────────────────────────────────────
+# ── Jina AI Primary Engine ───────────────────────────────────────────────────
 
 def _try_jina(url: str) -> Optional[FetchResult]:
-    """Free, robust endpoint that handles JavaScript rendering and bypasses WAF/anti-bot systems."""
+    """Free, headless engine used as primary wrapper to clean pages into Markdown."""
     try:
         jina_url = f"https://r.jina.ai/{url}"
         r = requests.get(jina_url, headers={"User-Agent": UA}, timeout=TIMEOUT, verify=False)
@@ -94,15 +74,15 @@ def _try_jina(url: str) -> Optional[FetchResult]:
             return FetchResult(text=r.text, html=r.text, status_code=200)
         return FetchResult(error=f"Jina returned status code {r.status_code}", status_code=r.status_code)
     except Exception as e:
-        log.warning("Jina engine processing failed for %s: %s", url, e)
+        log.warning("Jina proxy engine processing failed for %s: %s", url, e)
         return FetchResult(error=str(e))
 
 
-# ── requests fallback ─────────────────────────────────────────────────────────
+# ── Requests Fallback ─────────────────────────────────────────────────────────
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(min=2, max=20),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(min=2, max=10),
     retry=retry_if_exception_type(requests.RequestException),
     reraise=True,
 )
@@ -123,58 +103,40 @@ def _try_requests(url: str) -> FetchResult:
     )
 
 
-# ── public API ────────────────────────────────────────────────────────────────
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def fetch(url: str, *, prefer: str = "auto") -> FetchResult:
-    """Fetch *url* and return a FetchResult (also iterable as a 4-tuple).
+    """Fetch *url* using Jina AI as the primary worker engine."""
+    root = _root_domain(url)
 
-    prefer="auto"       — Jina first for protected domains; requests fallback for others.
-    prefer="firecrawl"  — (Legacy/Alias) Routes straight to Jina Engine only.
-    prefer="requests"   — plain requests only (skips Jina entirely).
-    """
-    force_jina = prefer == "firecrawl" or (
-        prefer == "auto" and _root_domain(url) in JINA_RECOMMENDED_DOMAINS
-    )
-
-    # --- Pass 1: Jina Free Engine (Forced or requested) ---
-    if prefer != "requests" and force_jina:
+    # --- Strategy: Run Jina First ---
+    if prefer != "requests":
         result = _try_jina(url)
         if result and result.ok:
             return result
-        log.warning("Jina-recommended engine block failed for %s: %s", url, result.error if result else "No body")
-        return result or FetchResult(error="Jina processing failure")
+        
+        # If Jina failed but this domain absolutely requires standard routing bypass, return the error
+        if root in STRICT_PROXY_DOMAINS:
+            log.warning("Primary Jina engine and proxy context failed for strict domain %s: %s", url, result.error if result else "No body")
+            return result or FetchResult(error="Proxy pipeline delivery failure")
 
-    # --- Pass 2: Standard Requests Fallback (unprotected or auto domains) ---
+    # --- Strategy: Run Local Requests Fallback for unprotected domains ---
     try:
+        log.info("Running standard backup request context for %s", url)
         return _try_requests(url)
     except requests.Timeout:
         log.warning("timeout fetching %s", url)
         return FetchResult(error=f"timeout after {TIMEOUT}s", status_code=408)
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else 0
-        
-        # If standard requests hit an unexpected 403 Forbidden/406 on an unlisted domain,
-        # run an emergency routing pass through Jina before giving up.
-        if code in (403, 401, 406) and prefer == "auto":
-            log.info("Encountered HTTP %s on standard requests adapter. Routing emergency fallback to Jina for %s", code, url)
-            jina_res = _try_jina(url)
-            if jina_res and jina_res.ok:
-                return jina_res
-                
         log.warning("HTTP %s fetching %s: %s", code, url, e)
         return FetchResult(error=str(e), status_code=code)
     except requests.RequestException as e:
-        # Emergency catch-all for SSL errors or dropped connections
-        if prefer == "auto":
-            log.info("Network exception caught on standard requests. Running emergency pass through Jina for %s", url)
-            jina_res = _try_jina(url)
-            if jina_res and jina_res.ok:
-                return jina_res
         log.warning("request failed %s: %s", url, e)
         return FetchResult(error=str(e))
 
 
-# ── utilities ─────────────────────────────────────────────────────────────────
+# ── Utilities ─────────────────────────────────────────────────────────────────
 
 def _root_domain(url: str) -> str:
     """'sub.hdfcbank.com' → 'hdfcbank.com'"""
