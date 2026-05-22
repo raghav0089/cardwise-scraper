@@ -29,7 +29,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd cardwise_scraper
           pip install -r requirements.txt
           playwright install chromium
           playwright install-deps
@@ -40,7 +39,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION:    ap-south-1
         run: |
-          cd cardwise_scraper
           python main.py
 
       - name: Upload run logs
