@@ -1,11 +1,10 @@
 """Fetch HTML / markdown for a URL.
 
 Strategy:
-  1. Try Firecrawl for all URLs (handles JS-rendered SPAs and Cloudflare-
-     protected sites like HDFC, ICICI, IDFC, Yes Bank).
-  2. Fall back to free Jina AI Reader API if Firecrawl fails or hits payment walls.
-  3. Fall back to plain requests + BS4 only for domains NOT in
-     FIRECRAWL_ONLY_DOMAINS.
+  1. Try free Jina AI Reader API first for protected, JavaScript-heavy, or WAF/Cloudflare
+     blocked domains (like HDFC, ICICI, Axis, Yes Bank, KVB, South Indian Bank).
+  2. Fall back to clean plain requests + BS4 text extraction only for standard,
+     unprotected domains not listed in JINA_RECOMMENDED_DOMAINS.
 
 FetchResult unpacks as a 4-tuple (text, html, status_code, etag) so all
 existing callers work unchanged:
@@ -14,7 +13,7 @@ existing callers work unchanged:
     result = fetch(url); result.ok             # also works
 """
 from __future__ import annotations
-import os, logging, hashlib, urllib3
+import logging, hashlib, urllib3
 from dataclasses import dataclass
 from typing import Optional, Iterator
 from urllib.parse import urlparse, urljoin
@@ -30,14 +29,14 @@ from tenacity import (
 
 log = logging.getLogger(__name__)
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-TIMEOUT = 45  # raised from 30 — Yes Bank times out at 30 s
+TIMEOUT = 45  # Yes Bank and heavy portals require higher timeout cushions
 
-# Suppress insecure platform warnings from verify=False logic
+# Suppress noisy insecure platform warnings printed by verify=False configurations
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Domains that actively block plain requests (WAF / Cloudflare / JS-only).
-# For these, we skip standard requests.get entirely to prevent 403 blocks.
-FIRECRAWL_ONLY_DOMAINS: frozenset[str] = frozenset({
+# High-security banking domains that block basic requests fingerprints outright.
+# For these, we skip standard requests completely and only use Jina's headless wrapper.
+JINA_RECOMMENDED_DOMAINS: frozenset[str] = frozenset({
     "hdfcbank.com",
     "icicibank.com",
     "idfcfirstbank.com",
@@ -84,47 +83,19 @@ class FetchResult:
         return bool(self.text or self.html) and self.error is None
 
 
-# ── Firecrawl ─────────────────────────────────────────────────────────────────
-
-_firecrawl = None
-
-def _fc():
-    global _firecrawl
-    if _firecrawl is None and os.getenv("FIRECRAWL_API_KEY"):
-        from firecrawl import FirecrawlApp
-        _firecrawl = FirecrawlApp(api_key=os.environ["FIRECRAWL_API_KEY"])
-    return _firecrawl
-
-
-def _try_firecrawl(url: str) -> Optional[FetchResult]:
-    fc = _fc()
-    if fc is None:
-        return None
-    try:
-        res = fc.scrape_url(url, formats=["markdown", "html"], only_main_content=True)
-        md   = getattr(res, "markdown", None) or (res.get("markdown")  if isinstance(res, dict) else None) or ""
-        html = getattr(res, "html",     None) or (res.get("html")      if isinstance(res, dict) else None) or ""
-        if md or html:
-            return FetchResult(text=md or _to_text(html), html=html or "", status_code=200)
-        return FetchResult(error=f"firecrawl returned empty for {url}")
-    except Exception as e:
-        log.warning("firecrawl failed for %s: %s", url, e)
-        return FetchResult(error=str(e))
-
-
-# ── Jina AI Free Fallback ─────────────────────────────────────────────────────
+# ── Jina AI Free Engine ───────────────────────────────────────────────────────
 
 def _try_jina(url: str) -> Optional[FetchResult]:
-    """Free alternative to process pages with heavy client JS or proxy blocks."""
+    """Free, robust endpoint that handles JavaScript rendering and bypasses WAF/anti-bot systems."""
     try:
         jina_url = f"https://r.jina.ai/{url}"
         r = requests.get(jina_url, headers={"User-Agent": UA}, timeout=TIMEOUT, verify=False)
         if r.status_code == 200 and r.text:
             return FetchResult(text=r.text, html=r.text, status_code=200)
-        return None
+        return FetchResult(error=f"Jina returned status code {r.status_code}", status_code=r.status_code)
     except Exception as e:
-        log.warning("Jina fallback failed for %s: %s", url, e)
-        return None
+        log.warning("Jina engine processing failed for %s: %s", url, e)
+        return FetchResult(error=str(e))
 
 
 # ── requests fallback ─────────────────────────────────────────────────────────
@@ -136,7 +107,6 @@ def _try_jina(url: str) -> Optional[FetchResult]:
     reraise=True,
 )
 def _try_requests(url: str) -> FetchResult:
-    # Set headers with browser-grade properties to circumvent SSLv3 alerts & handshakes
     headers = {
         "User-Agent": UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -158,33 +128,23 @@ def _try_requests(url: str) -> FetchResult:
 def fetch(url: str, *, prefer: str = "auto") -> FetchResult:
     """Fetch *url* and return a FetchResult (also iterable as a 4-tuple).
 
-    prefer="auto"       — Firecrawl first, then Jina AI; plain requests fallback
-                          only for domains NOT in FIRECRAWL_ONLY_DOMAINS.
-    prefer="firecrawl"  — Firecrawl/Jina only, no plain requests fallback.
-    prefer="requests"   — plain requests only (skips Firecrawl and Jina entirely).
+    prefer="auto"       — Jina first for protected domains; requests fallback for others.
+    prefer="firecrawl"  — (Legacy/Alias) Routes straight to Jina Engine only.
+    prefer="requests"   — plain requests only (skips Jina entirely).
     """
-    fc_only = prefer == "firecrawl" or (
-        prefer == "auto" and _root_domain(url) in FIRECRAWL_ONLY_DOMAINS
+    force_jina = prefer == "firecrawl" or (
+        prefer == "auto" and _root_domain(url) in JINA_RECOMMENDED_DOMAINS
     )
 
-    # --- Pass 1: Firecrawl ---
-    if prefer != "requests":
-        result = _try_firecrawl(url)
+    # --- Pass 1: Jina Free Engine (Forced or requested) ---
+    if prefer != "requests" and force_jina:
+        result = _try_jina(url)
         if result and result.ok:
             return result
-        
-        # --- Pass 2: Jina AI Reader Fallback (Free & handles JS) ---
-        log.info("Attempting free Jina reader fallback engine for %s", url)
-        jina_result = _try_jina(url)
-        if jina_result and jina_result.ok:
-            return jina_result
+        log.warning("Jina-recommended engine block failed for %s: %s", url, result.error if result else "No body")
+        return result or FetchResult(error="Jina processing failure")
 
-        if fc_only:
-            log.warning("firecrawl/jina domain fetch failed %s: %s",
-                        url, result.error if result else "no API engine available")
-            return jina_result or result or FetchResult(error="All processing engines failed")
-
-    # --- Pass 3: Standard Requests Fallback (unprotected sites only) ---
+    # --- Pass 2: Standard Requests Fallback (unprotected or auto domains) ---
     try:
         return _try_requests(url)
     except requests.Timeout:
@@ -192,9 +152,24 @@ def fetch(url: str, *, prefer: str = "auto") -> FetchResult:
         return FetchResult(error=f"timeout after {TIMEOUT}s", status_code=408)
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else 0
+        
+        # If standard requests hit an unexpected 403 Forbidden/406 on an unlisted domain,
+        # run an emergency routing pass through Jina before giving up.
+        if code in (403, 401, 406) and prefer == "auto":
+            log.info("Encountered HTTP %s on standard requests adapter. Routing emergency fallback to Jina for %s", code, url)
+            jina_res = _try_jina(url)
+            if jina_res and jina_res.ok:
+                return jina_res
+                
         log.warning("HTTP %s fetching %s: %s", code, url, e)
         return FetchResult(error=str(e), status_code=code)
     except requests.RequestException as e:
+        # Emergency catch-all for SSL errors or dropped connections
+        if prefer == "auto":
+            log.info("Network exception caught on standard requests. Running emergency pass through Jina for %s", url)
+            jina_res = _try_jina(url)
+            if jina_res and jina_res.ok:
+                return jina_res
         log.warning("request failed %s: %s", url, e)
         return FetchResult(error=str(e))
 
