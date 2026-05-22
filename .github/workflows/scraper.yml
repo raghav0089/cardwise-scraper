@@ -40,12 +40,12 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION:    ap-south-1
         run: |
-          python src/main.py
+          python -m src.main
 
       - name: Upload run logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: scraper-logs-${{ github.run_id }}
-          path: cardwise_scraper/logs/
+          path: logs/
           retention-days: 30
