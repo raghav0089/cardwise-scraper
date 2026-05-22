@@ -85,12 +85,6 @@ issuers:
     list_urls:
       - https://www.hsbc.co.in/credit-cards/
 
-  - id: citi  # portfolio absorbed into Axis but keep for legacy
-    name: Citi India (Axis)
-    type: bank
-    list_urls:
-      - https://www.online.citibank.co.in/credit-card/credit-cards.htm
-
   - id: idbi
     name: IDBI Bank
     type: bank
@@ -114,6 +108,7 @@ issuers:
     type: bank
     list_urls:
       - https://www.bandhanbank.com/personal/cards/credit-card
+      - https://www.bandhanbank.com/personal/cards/debit-card
 
   - id: south_indian
     name: South Indian Bank
@@ -129,10 +124,12 @@ issuers:
 
   # ---------- PSU banks ----------
   - id: bob
-    name: Bank of Baroda
+    name: Bank of Baroda (BOBCARD)
     type: bank
     list_urls:
-      - https://www.bobfinancial.com/credit-card.jsp
+      - https://www.bobcard.co.in/credit-card-types        # primary — bobfinancial.com is defunct
+      - https://bankofbaroda.bank.in/digital-products/cards/credit-cards
+    detail_link_pattern: "/credit-card"
 
   - id: pnb
     name: PNB / PNB Cards
@@ -165,7 +162,7 @@ issuers:
     list_urls:
       - https://www.americanexpress.com/in/credit-cards/
 
-  - id: diners  # under HDFC in India but list separately for discovery
+  - id: diners  # issued under HDFC in India; listed separately for discovery
     name: Diners Club India
     type: network
     list_urls:
@@ -197,6 +194,7 @@ issuers:
     type: neobank
     list_urls:
       - https://fi.money/credit-cards
+      - https://fi.money/features/debit-card
 
   - id: niyo
     name: Niyo
@@ -220,13 +218,14 @@ issuers:
     name: Kiwi (RuPay CC on UPI)
     type: neobank
     list_urls:
-      - https://kiwi.club/
+      - https://gokiwi.in/
 
   - id: super_money
     name: Super.money (Flipkart)
     type: neobank
     list_urls:
       - https://super.money/
+      - https://super.money/credit-card
 
   - id: paytm
     name: Paytm
@@ -259,17 +258,17 @@ issuers:
     list_urls:
       - https://karboncard.com/
 
-  - id: emkay  # corporate
+  - id: enkash
     name: EnKash
     type: neobank
     list_urls:
       - https://www.enkash.com/
 
-  - id: niro
-    name: Niro
+  - id: elixir
+    name: Elixir
     type: neobank
     list_urls:
-      - https://niro.money/
+      - https://www.elixir.cards/
 
   # ---------- Co-brand programmes (consumer) ----------
   - id: tata_neu
@@ -277,26 +276,69 @@ issuers:
     type: cobrand
     list_urls:
       - https://www.tataneu.com/tata-neu-card
+
   - id: flipkart_axis
     name: Flipkart Axis
     type: cobrand
     list_urls:
       - https://www.axisbank.com/retail/cards/credit-card/flipkart-axis-bank-credit-card
+
   - id: amazon_pay_icici
     name: Amazon Pay ICICI
     type: cobrand
     list_urls:
       - https://www.amazon.in/amazonpay/icicibank/creditcard
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/amazon-pay-credit-card
+
   - id: myntra_kotak
     name: Myntra Kotak
     type: cobrand
     list_urls:
       - https://www.kotak.com/en/personal-banking/cards/credit-cards/myntra-kotak-credit-card.html
+
   - id: swiggy_hdfc
     name: Swiggy HDFC
     type: cobrand
     list_urls:
       - https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card
+
+  - id: airtel_axis
+    name: Airtel Axis Bank
+    type: cobrand
+    list_urls:
+      - https://www.axisbank.com/retail/cards/credit-card/airtel-axis-bank-credit-card
+
+  - id: indianoil_axis
+    name: IndianOil Axis Bank
+    type: cobrand
+    list_urls:
+      - https://www.axisbank.com/retail/cards/credit-card/indianoil-axis-bank-credit-card
+      - https://www.axisbank.com/retail/cards/credit-card/indianoil-premium-credit-card
+
+  - id: swiggy_axis  # separate from Swiggy HDFC — different card, different issuer
+    name: Swiggy Axis Bank
+    type: cobrand
+    list_urls:
+      - https://www.axisbank.com/retail/cards/credit-card/swiggy-axis-bank-credit-card
+
+  - id: bpcl_sbi
+    name: BPCL SBI Card
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/fuel/bpcl-sbi-card.page
+
+  - id: irctc_sbi
+    name: IRCTC SBI Card
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/travel/irctc-sbi-card.page
+      - https://www.sbicard.com/en/personal/credit-cards/travel/irctc-sbi-card-premier.page
+
+  - id: ola_sbi
+    name: OLA SBI Card
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/shopping/ola-money-sbi-card.page
 
   # ---------- Forex / transit / prepaid ----------
   - id: niyo_global
@@ -304,13 +346,21 @@ issuers:
     type: forex
     list_urls:
       - https://www.goniyo.com/niyo-global-card/
+
   - id: bookmyforex
     name: BookMyForex
     type: forex
     list_urls:
       - https://www.bookmyforex.com/forex-card/
+
   - id: scapia
     name: Scapia (Federal Bank)
     type: forex
     list_urls:
       - https://www.scapia.cards/
+
+  - id: thomas_cook_forex
+    name: Thomas Cook Forex Card
+    type: forex
+    list_urls:
+      - https://www.thomascook.in/forex/forex-card
