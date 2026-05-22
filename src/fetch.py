@@ -44,6 +44,8 @@ FIRECRAWL_ONLY_DOMAINS: frozenset[str] = frozenset({
     "sbi.co.in",
     "sbicard.com",
     "indusind.com",
+    "bandhanbank.com",       # Added to handle proxy blockades
+    "southindianbank.com",   # Added to prevent parsing failures
 })
 
 

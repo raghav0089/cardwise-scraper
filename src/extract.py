@@ -13,8 +13,54 @@ from jsonschema import Draft7Validator
 from google import genai
 
 log = logging.getLogger(__name__)
+
+def _sanitize_schema_for_gemini(schema: dict) -> dict:
+    """Recursively converts standard JSON Schema (Draft-07) layouts to plain single-type
+    definitions that the Google GenAI SDK can parse without Pydantic verification failures.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    res = {}
+    for k, v in schema.items():
+        # Rule 1: Strip meta-schema validator flags
+        if k == "$schema":
+            continue
+
+        # Rule 2: Transform validation arrays like ["string", "null"] or ["number", "null"]
+        if k == "type" and isinstance(v, list):
+            non_null = [t for t in v if t != "null"]
+            if non_null:
+                res[k] = non_null[0].upper()
+            else:
+                res[k] = "STRING"
+            continue
+
+        # Rule 3: Ensure basic types match strict uppercase enum expectations
+        if k == "type" and isinstance(v, str):
+            res[k] = v.upper()
+            continue
+
+        # Rule 4: Strip empty or Null options out of strict enum constraint paths
+        if k == "enum" and isinstance(v, list):
+            clean_enums = [str(x) for x in v if x is not None and x != ""]
+            if clean_enums:
+                res[k] = clean_enums
+            continue
+
+        if isinstance(v, dict):
+            res[k] = _sanitize_schema_for_gemini(v)
+        elif isinstance(v, list):
+            res[k] = [_sanitize_schema_for_gemini(x) if isinstance(x, dict) else x for x in v]
+        else:
+            res[k] = v
+    return res
+
+# Read and validate using master rules downstream, but build a clean runtime view for Gemini
 SCHEMA    = json.loads(Path("schema/card.schema.json").read_text())
 VALIDATOR = Draft7Validator(SCHEMA)
+GEMINI_COMPATIBLE_SCHEMA = _sanitize_schema_for_gemini(SCHEMA)
+
 MODEL     = os.getenv("LLM_MODEL", "gemini-2.0-flash")
 
 SYSTEM = """You extract Indian payment-card product details from web pages.
@@ -46,16 +92,15 @@ def _model():
     return _client
 
 
-def extract_cards(batch: list[dict]) -> list[dict]:
+def extract_cards(batch: list[dict]) -> list[dict] | None:
     """Extracts payment card items from a batch of markdown structures simultaneously.
     
-    Each item in 'batch' expects:
-      {"markdown": str, "source_url": str, "issuer_id": str, "issuer_name": str}
+    Returns None if an API error or validation issue occurs, allowing the orchestrator
+    to avoid caching the source and handle automated daily retries.
     """
     if not batch:
         return []
 
-    # Pack multiple page payloads into a single context string to dramatically save daily quota limits
     batch_contents = []
     for idx, row in enumerate(batch):
         md = row.get("markdown") or ""
@@ -71,28 +116,24 @@ def extract_cards(batch: list[dict]) -> list[dict]:
     user_msg = "\n".join(batch_contents)
 
     try:
-        # We leverage the native structured schema output capability in the SDK config.
-        # This completely guarantees that resp.text will follow your required JSON format.
         resp = _model().models.generate_content(
             model=MODEL,
             contents=f"{SYSTEM}\n\n{user_msg}",
             config={
                 "response_mime_type": "application/json",
-                "response_schema": SCHEMA,
+                "response_schema": GEMINI_COMPATIBLE_SCHEMA,
             }
         )
         raw = resp.text
     except Exception as e:
         _log_error(batch[0]["source_url"] if batch else "unknown_batch", e)
-        return []
+        return None
 
     try:
-        # Gemini structured outputs return pure JSON directly.
-        # No markdown fences or formatting wrappers to strip!
-        payload = json.loads(resp.text.strip())
+        payload = json.loads(raw.strip())
     except Exception as e:
         log.warning("JSON parse failed on aggregated batch payload: %s", e)
-        return []
+        return None
 
     cards = payload.get("cards") or []
     out   = []

@@ -5,13 +5,14 @@
 
 sources:
   # Specialist card blogs (highest signal)
+  - https://technofino.in/category/credit-cards/
+  - https://www.technofino.in/community/forums/credit-cards.4/    # Added: Forum catches drops weeks before blog posts
   - https://cardinsider.com/blog/
   - https://www.cardexpert.in/
   - https://www.live-from-a-lounge.com/category/credit-cards/india/
   - https://www.paisabazaar.com/credit-cards-news/
   - https://www.bankbazaar.com/credit-card.html
   - https://creditcardz.in/
-  - https://technofino.in/category/credit-cards/
   - https://www.cardmaven.in/
 
   # Mainstream finance press
@@ -31,6 +32,8 @@ keywords:
   - "credit card"
   - "debit card"
   - "forex card"
+  - "prepaid card"     # Added: Catches lifestyle fintech plays like Elixir
+  - "ppi card"         # Added: Pre-paid instrument term used in industry news
   - "co-brand"
   - "co branded"
   - "launches"
@@ -41,6 +44,8 @@ keywords:
   - "milestone"
   - "lounge"
   - "reward rate"
+  - "lifetime free"    # Added: Standard terminology for stealth neo-launches
+  - "ltf"
 
 # How far to crawl from each seed
 crawl:

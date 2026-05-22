@@ -114,7 +114,9 @@ issuers:
     name: South Indian Bank
     type: bank
     list_urls:
-      - https://www.southindianbank.com/content/cards/3398
+      # FIX: Replaced explicit asset node id with clean directory listing index
+      - https://www.southindianbank.com/personal-banking/cards/credit-cards
+      - https://www.southindianbank.com/personal-banking/cards/debit-cards
 
   - id: karur_vysya
     name: Karur Vysya Bank
@@ -269,6 +271,7 @@ issuers:
     type: neobank
     list_urls:
       - https://www.elixir.cards/
+    detail_link_pattern: "/products/|/cards/"
 
   # ---------- Co-brand programmes (consumer) ----------
   - id: tata_neu
@@ -307,6 +310,15 @@ issuers:
     type: cobrand
     list_urls:
       - https://www.axisbank.com/retail/cards/credit-card/airtel-axis-bank-credit-card
+
+
+  - id: unity_sfb
+    name: Unity Small Finance Bank (Roar Bank)
+    type: bank
+    list_urls:
+      - https://roar.bank.in/
+      - https://roar.bank.in/en/about
+    detail_link_pattern: "roar\\.bank\\.in"
 
   - id: indianoil_axis
     name: IndianOil Axis Bank
