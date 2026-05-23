@@ -1,41 +1,51 @@
 """Fetch HTML / markdown for a URL.
 
 Strategy:
-  1. Try free Jina AI Reader API first for ALL domains (handles JS-rendering,
-     bypasses strict bank firewalls, corrects geo-routing/redirect issues).
-  2. Fall back to plain requests + BS4 text extraction only if Jina is down
-     and the domain is NOT in standard proxy protection lists.
+  1. Jina AI Reader (r.jina.ai) — free, handles JS + most WAFs → clean markdown.
+  2. Plain requests + BS4 fallback for non-strict domains.
+
+Rate limiting: enforces a minimum gap between Jina calls to avoid 429s.
 """
 from __future__ import annotations
-import logging, hashlib, urllib3
+import logging, hashlib, time, threading
 from dataclasses import dataclass
 from typing import Optional, Iterator
 from urllib.parse import urlparse, urljoin
 
 import requests
 from bs4 import BeautifulSoup
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 log = logging.getLogger(__name__)
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-TIMEOUT = 45
 
-# Suppress insecure platform connection pool warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+UA      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+TIMEOUT = 30
 
-# High-security domains that must never drop down to basic requests (will guarantee a block)
+# Minimum seconds between Jina requests — free tier allows ~20 req/min
+JINA_MIN_INTERVAL = 3.5   # ~17 req/min, safe under the 20/min free limit
+
 STRICT_PROXY_DOMAINS: frozenset[str] = frozenset({
     "hdfcbank.com", "icicibank.com", "idfcfirstbank.com", "yesbank.in",
     "axisbank.com", "kotak.com", "sbi.co.in", "sbicard.com", "indusind.com",
-    "bandhanbank.com", "southindianbank.com", "kvb.co.in", "rblbank.com",
-    "canarabank.com", "cred.club", "jupiter.money", "fi.money", "super.money",
-    "amazon.in", "goniyo.com", "technofino.in", "cardexpert.in", "live-from-a-lounge.com"
+    "bandhanbank.com", "bandhan.bank.in", "southindianbank.com", "kvb.bank.in",
+    "rblbank.com", "canarabank.com", "cred.club", "jupiter.money",
+    "fi.money", "super.money", "amazon.in", "goniyo.com",
 })
+
+# ── Jina rate-limit state ─────────────────────────────────────────────────────
+_jina_lock      = threading.Lock()
+_jina_last_call = 0.0
+
+
+def _jina_wait() -> None:
+    """Block until we're allowed to make the next Jina call."""
+    global _jina_last_call
+    with _jina_lock:
+        now     = time.monotonic()
+        gap     = now - _jina_last_call
+        if gap < JINA_MIN_INTERVAL:
+            time.sleep(JINA_MIN_INTERVAL - gap)
+        _jina_last_call = time.monotonic()
 
 
 @dataclass
@@ -47,52 +57,64 @@ class FetchResult:
     error: Optional[str] = None
 
     def __iter__(self) -> Iterator:
-        yield self.text
-        yield self.html
-        yield self.status_code
-        yield self.etag
-
-    def __len__(self) -> int:
-        return 4
-
-    def __getitem__(self, index: int):
-        return (self.text, self.html, self.status_code, self.etag)[index]
+        yield self.text; yield self.html; yield self.status_code; yield self.etag
+    def __len__(self) -> int: return 4
+    def __getitem__(self, i: int): return (self.text, self.html, self.status_code, self.etag)[i]
 
     @property
     def ok(self) -> bool:
         return bool(self.text or self.html) and self.error is None
 
 
-# ── Jina AI Primary Engine ───────────────────────────────────────────────────
+# ── Jina ──────────────────────────────────────────────────────────────────────
 
 def _try_jina(url: str) -> Optional[FetchResult]:
-    """Free, headless engine used as primary wrapper to clean pages into Markdown."""
+    _jina_wait()
+    jina_url = f"https://r.jina.ai/{url}"
+    t0 = time.monotonic()
     try:
-        jina_url = f"https://r.jina.ai/{url}"
-        r = requests.get(jina_url, headers={"User-Agent": UA}, timeout=TIMEOUT, verify=False)
+        r = requests.get(
+            jina_url,
+            headers={"User-Agent": UA, "Accept": "text/markdown,text/plain,*/*"},
+            timeout=TIMEOUT,
+        )
+        elapsed = time.monotonic() - t0
+        if r.status_code == 429:
+            log.warning("jina rate-limited (429) for %s — will back off", url)
+            time.sleep(10)   # back off before next call
+            return FetchResult(error="jina 429", status_code=429)
         if r.status_code == 200 and r.text:
+            log.debug("jina ok %.1fs %s", elapsed, url)
             return FetchResult(text=r.text, html=r.text, status_code=200)
-        return FetchResult(error=f"Jina returned status code {r.status_code}", status_code=r.status_code)
+        return FetchResult(error=f"jina status {r.status_code}", status_code=r.status_code)
+    except requests.Timeout:
+        log.warning("jina timeout (>%ds) %s", TIMEOUT, url)
+        return FetchResult(error=f"jina timeout after {TIMEOUT}s")
     except Exception as e:
-        log.warning("Jina proxy engine processing failed for %s: %s", url, e)
+        log.warning("jina error %s: %s", url, e)
         return FetchResult(error=str(e))
 
 
-# ── Requests Fallback ─────────────────────────────────────────────────────────
+# ── Requests fallback ─────────────────────────────────────────────────────────
 
 @retry(
     stop=stop_after_attempt(2),
-    wait=wait_exponential(min=2, max=10),
+    wait=wait_exponential(min=2, max=8),
     retry=retry_if_exception_type(requests.RequestException),
     reraise=True,
 )
 def _try_requests(url: str) -> FetchResult:
-    headers = {
-        "User-Agent": UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-    }
-    r = requests.get(url, headers=headers, timeout=TIMEOUT, verify=False)
+    log.info("requests fallback → %s", url)
+    r = requests.get(
+        url,
+        headers={
+            "User-Agent": UA,
+            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        },
+        timeout=TIMEOUT,
+        allow_redirects=True,
+    )
     r.raise_for_status()
     html = r.text
     return FetchResult(
@@ -106,41 +128,42 @@ def _try_requests(url: str) -> FetchResult:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def fetch(url: str, *, prefer: str = "auto") -> FetchResult:
-    """Fetch *url* using Jina AI as the primary worker engine."""
-    root = _root_domain(url)
+    log.info("fetch → %s", url)
+    t0    = time.monotonic()
+    root  = _root_domain(url)
+    strict = root in STRICT_PROXY_DOMAINS
 
-    # --- Strategy: Run Jina First ---
     if prefer != "requests":
         result = _try_jina(url)
         if result and result.ok:
+            log.info("fetch ok (jina, %.1fs) %s", time.monotonic() - t0, url)
             return result
-        
-        # If Jina failed but this domain absolutely requires standard routing bypass, return the error
-        if root in STRICT_PROXY_DOMAINS:
-            log.warning("Primary Jina engine and proxy context failed for strict domain %s: %s", url, result.error if result else "No body")
-            return result or FetchResult(error="Proxy pipeline delivery failure")
+        if strict:
+            log.warning("fetch failed strict domain (%.1fs) %s: %s",
+                        time.monotonic() - t0, url,
+                        result.error if result else "no result")
+            return result or FetchResult(error="jina failed, no fallback for strict domain")
 
-    # --- Strategy: Run Local Requests Fallback for unprotected domains ---
     try:
-        log.info("Running standard backup request context for %s", url)
-        return _try_requests(url)
+        result = _try_requests(url)
+        log.info("fetch ok (requests, %.1fs) %s", time.monotonic() - t0, url)
+        return result
     except requests.Timeout:
-        log.warning("timeout fetching %s", url)
+        log.warning("fetch timeout (%.1fs) %s", time.monotonic() - t0, url)
         return FetchResult(error=f"timeout after {TIMEOUT}s", status_code=408)
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else 0
-        log.warning("HTTP %s fetching %s: %s", code, url, e)
+        log.warning("fetch HTTP %s (%.1fs) %s", code, time.monotonic() - t0, url)
         return FetchResult(error=str(e), status_code=code)
     except requests.RequestException as e:
-        log.warning("request failed %s: %s", url, e)
+        log.warning("fetch error (%.1fs) %s: %s", time.monotonic() - t0, url, e)
         return FetchResult(error=str(e))
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
 def _root_domain(url: str) -> str:
-    """'sub.hdfcbank.com' → 'hdfcbank.com'"""
-    host = urlparse(url).hostname or ""
+    host  = urlparse(url).hostname or ""
     parts = host.split(".")
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
@@ -150,9 +173,7 @@ def _to_text(html: str) -> str:
     for tag in soup(["script", "style", "noscript", "svg"]):
         tag.decompose()
     return "\n".join(
-        line.strip()
-        for line in soup.get_text("\n").splitlines()
-        if line.strip()
+        line.strip() for line in soup.get_text("\n").splitlines() if line.strip()
     )
 
 
@@ -163,19 +184,15 @@ def sha256(text: str) -> str:
 def absolutize(base: str, links: list[str]) -> list[str]:
     out, seen = [], set()
     for href in links:
-        if not href:
-            continue
+        if not href: continue
         u = urljoin(base, href.split("#")[0])
-        if not urlparse(u).scheme.startswith("http"):
-            continue
-        if u in seen:
-            continue
-        seen.add(u)
-        out.append(u)
+        if not urlparse(u).scheme.startswith("http"): continue
+        if u in seen: continue
+        seen.add(u); out.append(u)
     return out
 
 
 def harvest_links(html: str, base_url: str) -> list[str]:
-    soup = BeautifulSoup(html or "", "lxml")
+    soup  = BeautifulSoup(html or "", "lxml")
     hrefs = [a.get("href") for a in soup.find_all("a", href=True)]
     return absolutize(base_url, hrefs)

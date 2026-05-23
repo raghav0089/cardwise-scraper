@@ -5,6 +5,12 @@ Stages:
   2. discovery     — finance blogs/news for newly-launched or devalued cards
   3. fetch + hash-check each URL, archive HTML to S3
   4. batch extract via Gemini (10 pages per call) → normalize → diff → upsert
+
+Rate limiting:
+  - Jina:   3.5s between calls (enforced in fetch.py, ~17 req/min)
+  - Gemini: GEMINI_RPM cap enforced here via token-bucket sleep
+            gemini-2.0-flash-lite free tier = 30 req/min
+            Set GEMINI_RPM=30 (default) or lower if still hitting 429s
 """
 from __future__ import annotations
 import os, json, logging, time, sys, re
@@ -23,9 +29,11 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("main")
 OUT = Path("out"); OUT.mkdir(exist_ok=True)
 
-BATCH_SIZE = int(os.getenv("LLM_BATCH_SIZE", "10"))  # pages per Gemini call
+BATCH_SIZE  = int(os.getenv("LLM_BATCH_SIZE", "10"))
+GEMINI_RPM  = int(os.getenv("GEMINI_RPM", "30"))          # req/min free tier cap
+_GEMINI_MIN_INTERVAL = 60.0 / GEMINI_RPM                   # seconds between calls
+_last_gemini_call    = 0.0
 
-# URL segments that are never card product pages — skip before LLM
 _SKIP_RE = re.compile(
     r"/(compare|offers?|rewards?|loan-on|balance-on|other-benefits|"
     r"features?|faq|apply|eligibility|fees?|charges?|contact|"
@@ -36,6 +44,18 @@ _SKIP_RE = re.compile(
 
 def _should_extract(url: str) -> bool:
     return not bool(_SKIP_RE.search(urlparse(url).path))
+
+
+def _gemini_wait() -> None:
+    """Token-bucket throttle — ensures we never exceed GEMINI_RPM."""
+    global _last_gemini_call
+    now = time.monotonic()
+    gap = now - _last_gemini_call
+    if gap < _GEMINI_MIN_INTERVAL:
+        sleep_for = _GEMINI_MIN_INTERVAL - gap
+        log.debug("gemini throttle: sleeping %.1fs", sleep_for)
+        time.sleep(sleep_for)
+    _last_gemini_call = time.monotonic()
 
 
 def gather_urls() -> list[dict]:
@@ -57,7 +77,6 @@ def gather_urls() -> list[dict]:
 def fetch_page(row: dict) -> dict | None:
     """Fetch one URL. Returns page dict for batching, or None to skip."""
     url = row["url"]
-
     if not _should_extract(url):
         log.debug("skip non-product URL: %s", url)
         return None
@@ -78,7 +97,6 @@ def fetch_page(row: dict) -> dict | None:
         return None
 
     store.archive_raw(url, result.html)
-
     return {
         "source_url":  url,
         "issuer_id":   row.get("issuer_id"),
@@ -94,16 +112,19 @@ def flush_batch(batch: list[dict]) -> list[dict]:
     if not batch:
         return []
 
+    _gemini_wait()
     log.info("LLM batch: %d pages → 1 call", len(batch))
 
-    # extract_cards returns None on API error, [] on empty, list on success
     cards = extract_cards(batch)
-    if not cards:           # handles both None and []
-        if cards is None:
-            log.warning("batch returned None (API error) — sources NOT marked; will retry tomorrow")
+    if cards is None:
+        log.warning("batch returned None (API error) — sources NOT marked; will retry tomorrow")
+        return []
+    if not cards:
+        # success but no cards found — still mark sources so we don't re-scrape
+        for page in batch:
+            store.mark_source(page["source_url"], sha=page["sha"], etag=page["etag"])
         return []
 
-    # group cards back by source_url for per-page bookkeeping
     by_url: dict[str, list] = {p["source_url"]: [] for p in batch}
     for c in cards:
         src = c.get("source_url") or batch[0]["source_url"]
@@ -136,8 +157,6 @@ def flush_batch(batch: list[dict]) -> list[dict]:
                 })
             store.upsert_card(c)
             out.append(c)
-
-        # only mark source as seen if extraction succeeded
         store.mark_source(url, sha=page["sha"], etag=page["etag"])
 
     return out
@@ -146,7 +165,7 @@ def flush_batch(batch: list[dict]) -> list[dict]:
 def main() -> int:
     started = time.time()
     urls    = gather_urls()
-    log.info("gathered %d urls (batch_size=%d)", len(urls), BATCH_SIZE)
+    log.info("gathered %d urls (batch=%d, gemini_rpm=%d)", len(urls), BATCH_SIZE, GEMINI_RPM)
 
     all_cards: list[dict] = []
     batch:     list[dict] = []
@@ -168,9 +187,6 @@ def main() -> int:
             except Exception as e:
                 log.exception("flush error: %s", e)
             batch = []
-            time.sleep(1)   # brief pause between Gemini calls
-
-        time.sleep(0.3)     # polite crawl delay
 
     final = dedupe(all_cards)
     (OUT / "cards.json").write_text(json.dumps(final, indent=2, default=str))

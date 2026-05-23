@@ -56,8 +56,11 @@ issuers:
     name: YES Bank
     type: bank
     list_urls:
-      - https://www.yesbank.in/personal-banking/yes-individual/cards/credit-cards
-      - https://www.yesbank.in/personal-banking/yes-individual/cards/debit-cards
+      - https://www.yes.bank.in/personal-banking/yes-individual/cards
+      - https://www.yes.bank.in/personal-banking/yes-individual/cards/credit-cards
+      - https://www.yes.bank.in/personal-banking/yes-individual/cards/debit-card
+      - https://www.yes.bank.in/personal-banking/yes-individual/cards/prepaid-cards
+      - https://www.yes.bank.in/personal-banking/yes-individual/cards/mctc-card
 
   - id: indusind
     name: IndusInd Bank
@@ -123,7 +126,7 @@ issuers:
     name: Karur Vysya Bank
     type: bank
     list_urls:
-      - https://www.kvb.co.in/personal-banking/cards/credit-cards/
+      - https://www.kvb.bank.in/personal-banking/cards/credit-cards
 
   # ---------- PSU banks ----------
   - id: bob
@@ -146,13 +149,18 @@ issuers:
     name: PNB / PNB Cards
     type: bank
     list_urls:
-      - https://www.pnbindia.in/credit-card.html
+      - https://pnb.bank.in/card-index.html
+      - https://creditcard.pnb.bank.in/
+      - https://pnb.bank.in/PNB-World-travel-card.html
+      - https://pnb.bank.in/card-index.html#ruplaycard_tab
+      - https://pnb.bank.in/Platinum-debit-card.html
 
   - id: canara
     name: Canara Bank
     type: bank
     list_urls:
-      - https://canarabank.com/pages/Credit-Card-13
+      - https://www.canarabank.bank.in/pages/exclusive-credit-card-offers
+      - https://www.canarabank.bank.in/pages/exclusive-debit-card-offers
 
   - id: union
     name: Union Bank of India
