@@ -1,13 +1,14 @@
-"""LLM-based extractor — takes a batch of scraped pages and returns
-normalized card records matching schema/card.schema.json.
+"""LLM-based extractor — rotates across up to 3 Gemini API keys to stay
+within the free-tier daily quota (1,500 req/day per key).
 
-Provider: Google Gemini (free tier).
-  → Get key: https://aistudio.google.com  →  set GEMINI_API_KEY
+Set keys via env vars:
+    GEMINI_API_KEY      (required)
+    GEMINI_API_KEY_2    (optional)
+    GEMINI_API_KEY_3    (optional)
 
-Model choice (set via LLM_MODEL env var):
-  gemini-2.0-flash-lite  →  1,500 req/MIN free  ← default, use this
-  gemini-2.0-flash       →  15 req/MIN free (1,500/day)
-  gemini-1.5-flash-8b    →  alternative free option
+On a 429, the current key is marked exhausted and the next key is tried
+automatically. If all keys are exhausted, returns None so the caller knows
+not to mark sources as seen (they'll retry tomorrow).
 """
 from __future__ import annotations
 import os, json, logging
@@ -18,9 +19,7 @@ from google import genai
 log = logging.getLogger(__name__)
 SCHEMA    = json.loads(Path("schema/card.schema.json").read_text())
 VALIDATOR = Draft7Validator(SCHEMA)
-
-# gemini-2.0-flash-lite: 1,500 req/min free vs gemini-2.0-flash: 15 req/min / 1,500 req/day
-MODEL = os.getenv("LLM_MODEL", "gemini-2.0-flash-lite")
+MODEL     = os.getenv("LLM_MODEL", "gemini-2.0-flash-lite")
 
 SYSTEM = """You extract Indian payment-card product details from web pages.
 
@@ -42,27 +41,58 @@ Each card must match the IndianCard schema. RULES:
 - Always set "source_url" in each card to the exact SOURCE_URL from its document block.
 - Return ONLY the JSON object. No markdown fences, no preamble."""
 
-_client = None
 
-def _get_client():
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    return _client
+# ── Key rotation ──────────────────────────────────────────────────────────────
 
+def _load_keys() -> list[str]:
+    keys = []
+    for var in ("GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"):
+        k = os.getenv(var, "").strip()
+        if k:
+            keys.append(k)
+    if not keys:
+        raise RuntimeError("No Gemini API keys configured. Set GEMINI_API_KEY.")
+    return keys
+
+_keys:           list[str] = []
+_key_index:      int       = 0        # which key we're currently using
+_exhausted:      set[int]  = set()    # indices of quota-exhausted keys
+_clients:        dict[int, genai.Client] = {}
+
+
+def _get_client() -> tuple[int, genai.Client] | None:
+    """Return (index, client) for the next available key, or None if all exhausted."""
+    global _keys, _key_index
+    if not _keys:
+        _keys = _load_keys()
+
+    # try current key first, then wrap around
+    for _ in range(len(_keys)):
+        if _key_index not in _exhausted:
+            if _key_index not in _clients:
+                _clients[_key_index] = genai.Client(api_key=_keys[_key_index])
+            return _key_index, _clients[_key_index]
+        _key_index = (_key_index + 1) % len(_keys)
+
+    return None   # all keys exhausted
+
+
+def _mark_exhausted(index: int) -> None:
+    _exhausted.add(index)
+    remaining = len(_keys) - len(_exhausted)
+    log.warning("Gemini key #%d exhausted. %d key(s) remaining.", index + 1, remaining)
+    global _key_index
+    _key_index = (index + 1) % len(_keys)
+
+
+# ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_cards(batch: list[dict]) -> list[dict] | None:
     """Extract card records from a batch of pages in one Gemini call.
 
-    Each element of `batch` must have:
-        source_url  : str
-        markdown    : str
-        issuer_id   : str | None
-        issuer_name : str | None
-
-    Returns:
+    Rotates keys on 429. Returns:
         list[dict]  — extracted cards (may be empty)
-        None        — API error; caller should NOT mark sources as seen
+        None        — all keys exhausted; caller should NOT mark sources as seen
     """
     valid = [p for p in batch if p.get("markdown") and len(p["markdown"]) >= 200]
     if not valid:
@@ -78,19 +108,39 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
             f"{p['markdown'][:12000]}\n"
             f"--- END DOCUMENT {i} ---"
         )
-
     prompt = f"{SYSTEM}\n\n" + "\n\n".join(parts)
 
-    try:
-        resp = _get_client().models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
-        )
-        raw = resp.text
-    except Exception as e:
-        _log_error(valid[0]["source_url"], e)
-        return None     # signals caller: don't cache, retry tomorrow
+    # try each available key
+    while True:
+        slot = _get_client()
+        if slot is None:
+            log.error("All %d Gemini key(s) exhausted for today. "
+                      "Resets at midnight PT.", len(_keys))
+            return None
+
+        idx, client = slot
+        try:
+            resp = client.models.generate_content(
+                model=MODEL,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+            raw = resp.text
+            break   # success — exit retry loop
+
+        except Exception as e:
+            msg = str(e)
+            if "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower():
+                _mark_exhausted(idx)
+                continue   # try next key
+            elif "API_KEY" in msg or "401" in msg:
+                log.error("Gemini key #%d auth error — check GEMINI_API_KEY_%s: %s",
+                          idx + 1, "" if idx == 0 else idx + 1, e)
+                _mark_exhausted(idx)
+                continue
+            else:
+                log.error("Gemini call failed: %s", e)
+                return None
 
     try:
         clean   = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
@@ -112,18 +162,7 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
             log.info("schema warnings for %s: %s",
                      c.get("card_id"), [e.message for e in errs[:3]])
         out.append(c)
+
+    log.info("extracted %d card(s) from %d page(s) using key #%d",
+             len(out), len(valid), idx + 1)
     return out
-
-
-def _log_error(label: str, exc: Exception) -> None:
-    msg = str(exc)
-    if "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower():
-        log.error(
-            "Gemini quota hit. If using gemini-2.0-flash, switch to "
-            "gemini-2.0-flash-lite (LLM_MODEL=gemini-2.0-flash-lite) — "
-            "it allows 1,500 req/MIN free vs 1,500/day. Skipping: %s", label,
-        )
-    elif "API_KEY" in msg or "401" in msg:
-        log.error("Gemini auth error — check GEMINI_API_KEY. Skipping %s", label)
-    else:
-        log.error("Gemini call failed for %s: %s", label, exc)
