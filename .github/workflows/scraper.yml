@@ -1,56 +1,54 @@
-# ─────────────────────────────────────────────────────
-# CardWise Card Scraper — Daily Cron
-#
-# TO ENABLE DAILY: uncomment the `schedule` block
-# TO DISABLE:      comment out the `schedule` block
-# TO RUN MANUALLY: GitHub → Actions → Run workflow
-# ─────────────────────────────────────────────────────
-
 name: Card Scraper
 
 on:
-  workflow_dispatch:        # manual trigger always available
-  # schedule:               # ← UNCOMMENT TO ENABLE DAILY
-  #   - cron: '0 2 * * *'  # runs at 2am UTC (7:30am IST) every day
+  schedule:
+    - cron: "30 2 * * *"   # 8:00 AM IST daily (2:30 AM UTC)
+  workflow_dispatch:
+    inputs:
+      test_urls:
+        description: "Smoke test (10 hardcoded URLs only)"
+        type: boolean
+        default: false
+      test_run:
+        description: "Number of issuer URLs to process (0 = full run)"
+        type: number
+        default: 0
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 120    # 2hr max — way more than Lambda's 15min limit
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          python -m playwright install chromium
-          python -m playwright install-deps
+        run: pip install -r requirements.txt
 
       - name: Run scraper
         env:
-          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION:    ap-south-1
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
-        run: |
-          python -m src.main
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION:       ${{ secrets.AWS_REGION }}
+          DDB_CARDS_TABLE:  ${{ secrets.DDB_CARDS_TABLE }}
+          DDB_SOURCES_TABLE: ${{ secrets.DDB_SOURCES_TABLE }}
+          DDB_CHANGES_TABLE: ${{ secrets.DDB_CHANGES_TABLE }}
+          S3_BUCKET:        ${{ secrets.S3_BUCKET }}
+          TEST_URLS:        ${{ inputs.test_urls && '1' || '0' }}
+          TEST_RUN:         ${{ inputs.test_run || '0' }}
+        run: python -m src.main
 
-      - name: Upload run logs
+      - name: Upload cards.json artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scraper-logs-${{ github.run_id }}
-          path: logs/
-          retention-days: 30
+          name: cards-${{ github.run_id }}
+          path: out/cards.json
+          if-no-files-found: TEST_URLS

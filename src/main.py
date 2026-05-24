@@ -1,16 +1,7 @@
 """Orchestrator — invoked by GitHub Actions once a day.
 
-Stages:
-  1. issuer-scrape — every configured issuer's listing & detail pages
-  2. discovery     — finance blogs/news for newly-launched or devalued cards
-  3. fetch + hash-check each URL, archive HTML to S3
-  4. batch extract via Gemini → normalize → diff → upsert
-
-Key behaviours:
-  - URLs are filtered BEFORE fetching (extensions, off-topic domains, known junk paths)
-  - Gemini quota exhaustion triggers a circuit breaker: remaining fetches are
-    skipped so we don't burn Jina calls pointlessly
-  - GEMINI_RPM env var throttles calls to stay within free-tier rate limits
+Set TEST_URLS=1 to run against a hardcoded small list (bypasses issuer crawl).
+Set TEST_RUN=N to take first N URLs from the normal issuer list.
 """
 from __future__ import annotations
 import os, json, logging, time, sys, re
@@ -31,84 +22,69 @@ OUT = Path("out"); OUT.mkdir(exist_ok=True)
 
 BATCH_SIZE = int(os.getenv("LLM_BATCH_SIZE", "10"))
 GEMINI_RPM = int(os.getenv("GEMINI_RPM", "30"))
+TEST_RUN   = int(os.getenv("TEST_RUN", "0"))
+TEST_URLS  = os.getenv("TEST_URLS", "0") == "1"
+
 _GEMINI_MIN_INTERVAL = 60.0 / GEMINI_RPM
 _last_gemini_call    = 0.0
 
+# Hardcoded smoke-test URLs — one from each major issuer type
+_SMOKE_TEST_URLS = [
+    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards",        "issuer_id": "hdfc",       "issuer_name": "HDFC Bank",         "is_discovery": False},
+    {"url": "https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card", "issuer_id": "icici", "issuer_name": "ICICI Bank", "is_discovery": False},
+    {"url": "https://www.axisbank.com/retail/cards/credit-card",               "issuer_id": "axis",       "issuer_name": "Axis Bank",         "is_discovery": False},
+    {"url": "https://www.sbicard.com/en/personal/credit-cards.page",           "issuer_id": "sbi_card",   "issuer_name": "SBI Card",          "is_discovery": False},
+    {"url": "https://www.kotak.com/en/personal-banking/cards/credit-cards.html","issuer_id": "kotak",     "issuer_name": "Kotak Mahindra Bank","is_discovery": False},
+    {"url": "https://www.sc.com/in/credit-cards/",                             "issuer_id": "standard_chartered", "issuer_name": "Standard Chartered", "is_discovery": False},
+    {"url": "https://www.getonecard.app/",                                     "issuer_id": "onecard",    "issuer_name": "OneCard",           "is_discovery": False},
+    {"url": "https://www.scapia.cards/",                                       "issuer_id": "scapia",     "issuer_name": "Scapia",            "is_discovery": False},
+    {"url": "https://www.axisbank.com/retail/cards/credit-card/flipkart-axis-bank-credit-card", "issuer_id": "flipkart_axis", "issuer_name": "Flipkart Axis", "is_discovery": False},
+    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card", "issuer_id": "swiggy_hdfc", "issuer_name": "Swiggy HDFC", "is_discovery": False},
+]
+
 # ── URL filters ───────────────────────────────────────────────────────────────
 
-# File extensions that are never card content
 _JUNK_EXTENSIONS = frozenset({
     ".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".ico",
-    ".pdf", ".zip", ".mp4", ".mp3", ".woff", ".woff2", ".ttf",
-    ".css", ".js", ".json", ".xml",
+    ".pdf", ".zip", ".mp4", ".mp3", ".woff", ".woff2", ".ttf", ".css", ".js", ".xml",
 })
-
-# Domains we never want to send to the LLM (CDNs, image hosts, unrelated news)
 _JUNK_DOMAINS = frozenset({
     "b-cdn.net", "wp.com", "bsmedia.business-standard.com",
     "static.bankbazaar.com", "images.moneycontrol.com",
-    "stat1.moneycontrol.com", "img.etimg.com",
-    "rupay.co.in",          # network promo pages, not card products
-    "npci.org.in",          # always times out, not a card issuer page
+    "stat1.moneycontrol.com", "rupay.co.in", "npci.org.in",
 })
-
-# Path segments that indicate non-product pages
 _SKIP_PATH_RE = re.compile(
-    r"/(compare|offers?|loan-on|balance-on|other-benefits|"
-    r"faq|apply|eligibility|fees?|charges?|contact|login|register|"
-    r"sitemap|privacy|terms|legal|press|careers?|support|help|"
-    r"download|app|lounge|festive|dearness|personal-loan|"
-    r"debit-card[/-]?$|bill-payment|customer-care|"
-    r"negative-balance|secured-credit-card$|"
-    r"different-types|top-10|lounge-access|"
-    r"zero-forex-markup|best-lifetime|best-international|"
-    r"best-secured|travel-credit-cards$)(/|$)",
+    r"/(compare|offers?|loan-on|balance-on|other-benefits|faq|apply|"
+    r"eligibility|fees?|charges?|contact|login|register|sitemap|privacy|"
+    r"terms|legal|press|careers?|support|help|download|app|lounge|festive|"
+    r"personal-loan|bill-payment|customer-care|negative-balance|"
+    r"different-types|top-10|lounge-access|zero-forex-markup|"
+    r"best-lifetime|best-international|best-secured|travel-credit-cards$)(/|$)",
     re.IGNORECASE,
 )
-
-# Discovery sources we trust to have card-product links (others are too noisy)
 _ALLOWED_DISCOVERY_DOMAINS = frozenset({
-    "cardexpert.in", "cardinsider.com", "cardinside.in",
-    "technofino.in", "bankbazaar.com", "paisabazaar.com",
-    "economictimes.indiatimes.com", "livemint.com",
-    "business-standard.com", "moneycontrol.com",
-    "financialexpress.com", "ndtv.com", "hindustantimes.com",
+    "cardexpert.in", "cardinsider.com", "technofino.in",
+    "bankbazaar.com", "paisabazaar.com", "economictimes.indiatimes.com",
+    "livemint.com", "business-standard.com", "moneycontrol.com",
 })
 
-
 def _should_fetch(url: str, is_discovery: bool = False) -> bool:
-    """Return False for URLs we know are junk before even hitting Jina."""
     parsed = urlparse(url)
     host   = parsed.hostname or ""
     path   = parsed.path.lower()
-
-    # reject by extension
-    ext = path.rsplit(".", 1)[-1] if "." in path.split("/")[-1] else ""
-    if f".{ext}" in _JUNK_EXTENSIONS:
-        return False
-
-    # reject known junk domains
+    ext    = path.rsplit(".", 1)[-1] if "." in path.split("/")[-1] else ""
+    if f".{ext}" in _JUNK_EXTENSIONS: return False
     root = ".".join(host.split(".")[-2:]) if host else ""
-    if root in _JUNK_DOMAINS or host in _JUNK_DOMAINS:
-        return False
-
-    # reject known junk paths
-    if _SKIP_PATH_RE.search(parsed.path):
-        return False
-
-    # for discovery URLs, only trust known good domains
-    if is_discovery and root not in _ALLOWED_DISCOVERY_DOMAINS:
-        log.debug("skip unknown discovery domain: %s", url)
-        return False
-
+    if root in _JUNK_DOMAINS or host in _JUNK_DOMAINS: return False
+    if _SKIP_PATH_RE.search(parsed.path): return False
+    if is_discovery and root not in _ALLOWED_DISCOVERY_DOMAINS: return False
     return True
 
 
 # ── Gemini circuit breaker ────────────────────────────────────────────────────
 
-_gemini_consecutive_failures = 0
-_GEMINI_FAILURE_THRESHOLD    = 3   # stop trying after this many consecutive 429s
-
+_gemini_failures  = 0
+_GEMINI_THRESHOLD = 3
 
 def _gemini_wait() -> None:
     global _last_gemini_call
@@ -118,31 +94,41 @@ def _gemini_wait() -> None:
         time.sleep(_GEMINI_MIN_INTERVAL - gap)
     _last_gemini_call = time.monotonic()
 
-
 def _gemini_dead() -> bool:
-    return _gemini_consecutive_failures >= _GEMINI_FAILURE_THRESHOLD
+    return _gemini_failures >= _GEMINI_THRESHOLD
 
 
 # ── URL gathering ─────────────────────────────────────────────────────────────
 
 def gather_urls() -> list[dict]:
+    if TEST_URLS:
+        log.info("TEST_URLS mode: using %d hardcoded smoke-test URLs", len(_SMOKE_TEST_URLS))
+        return _SMOKE_TEST_URLS
+
     mode = os.getenv("RUN_MODE", "all")
     if mode == "single":
         return [{"url": os.environ["SINGLE_URL"], "issuer_id": None,
                  "issuer_name": None, "is_discovery": False}]
+
     urls: list[dict] = []
     if mode in ("all", "issuers"):
         for r in collect_detail_urls():
             r["is_discovery"] = False
             urls.append(r)
-    if mode in ("all", "discover"):
+    if not TEST_RUN and mode in ("all", "discover"):
         for r in discover_candidate_urls():
             r["is_discovery"] = True
             urls.append(r)
+
     seen, uniq = set(), []
     for r in urls:
         if r["url"] not in seen:
             seen.add(r["url"]); uniq.append(r)
+
+    if TEST_RUN:
+        uniq = uniq[:TEST_RUN]
+        log.info("TEST_RUN=%d: trimmed to %d urls", TEST_RUN, len(uniq))
+
     return uniq
 
 
@@ -185,30 +171,23 @@ def fetch_page(row: dict) -> dict | None:
 # ── LLM flush ────────────────────────────────────────────────────────────────
 
 def flush_batch(batch: list[dict]) -> list[dict]:
-    global _gemini_consecutive_failures
-
+    global _gemini_failures
     if not batch:
         return []
 
     _gemini_wait()
     log.info("LLM batch: %d pages → 1 call", len(batch))
-
     cards = extract_cards(batch)
 
     if cards is None:
-        _gemini_consecutive_failures += 1
+        _gemini_failures += 1
         log.warning("Gemini error #%d/%d — sources NOT marked",
-                    _gemini_consecutive_failures, _GEMINI_FAILURE_THRESHOLD)
+                    _gemini_failures, _GEMINI_THRESHOLD)
         if _gemini_dead():
-            log.error(
-                "Gemini quota exhausted (%d consecutive failures). "
-                "Stopping LLM calls for this run. "
-                "Remaining URLs will be retried tomorrow.",
-                _gemini_consecutive_failures,
-            )
+            log.error("Gemini quota exhausted — stopping LLM calls for this run.")
         return []
 
-    _gemini_consecutive_failures = 0   # reset on success
+    _gemini_failures = 0
 
     if not cards:
         for page in batch:
@@ -237,10 +216,8 @@ def flush_batch(batch: list[dict]) -> list[dict]:
             else:
                 store.record_change({
                     "change_id":   f"{c['card_id']}#new#{c['last_scraped_at']}",
-                    "card_id":     c["card_id"],
-                    "field":       "_new",
-                    "old_value":   None,
-                    "new_value":   c.get("card_name"),
+                    "card_id":     c["card_id"], "field": "_new",
+                    "old_value":   None, "new_value": c.get("card_name"),
                     "change_type": "new_card",
                     "detected_at": c["last_scraped_at"],
                     "source_url":  url,
@@ -257,16 +234,16 @@ def flush_batch(batch: list[dict]) -> list[dict]:
 def main() -> int:
     started = time.time()
     urls    = gather_urls()
-    log.info("gathered %d candidate urls (batch=%d, rpm=%d)",
-             len(urls), BATCH_SIZE, GEMINI_RPM)
+    log.info("processing %d urls (batch=%d%s)",
+             len(urls), BATCH_SIZE,
+             ", TEST_URLS" if TEST_URLS else f", TEST_RUN={TEST_RUN}" if TEST_RUN else "")
 
     all_cards: list[dict] = []
     batch:     list[dict] = []
 
     for i, row in enumerate(urls, 1):
-        # Stop fetching entirely once Gemini is confirmed dead for this run
         if _gemini_dead() and not batch:
-            log.warning("circuit breaker open — skipping remaining %d urls", len(urls) - i + 1)
+            log.warning("circuit breaker — skipping remaining %d urls", len(urls) - i + 1)
             break
 
         log.info("[%d/%d] %s", i, len(urls), row["url"])
