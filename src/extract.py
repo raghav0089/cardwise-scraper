@@ -24,22 +24,114 @@ MODEL     = os.getenv("LLM_MODEL", "gemini-2.0-flash-lite")
 SYSTEM = """You extract Indian payment-card product details from web pages.
 
 You will receive one or more pages, each wrapped in --- DOCUMENT <n> --- blocks.
-
 Return STRICT JSON: {"cards":[<card>, ...]} — a flat list across ALL pages.
-Each card must match the IndianCard schema. RULES:
+Each card must match the IndianCard schema.
 
-- If a page is not about a specific payment card product
-  (credit/debit/prepaid/forex/corporate), emit nothing for it.
-- A single page may describe many cards — emit one record per distinct card.
-- Use INR numeric values (e.g. 12500, not "₹12,500"). Strip GST language
-  but set fees.gst_extra=true if "+GST" / "exclusive of GST" appears.
-- Convert reward-rate phrases to base_rate_pct (1 RP per ₹150 with RP=₹0.25
-  => base_rate_pct = 0.25/150*100 = 0.167).
-- Be conservative: leave a field null rather than guess. Set "confidence"
-  between 0 and 1 reflecting how complete the page was.
-- card_id = "<issuer_id>__<slug-of-card_name>".
-- Always set "source_url" in each card to the exact SOURCE_URL from its document block.
-- Return ONLY the JSON object. No markdown fences, no preamble."""
+──────────────────────────────────────────────────────
+GENERAL
+──────────────────────────────────────────────────────
+- Skip pages not about a specific payment-card product (credit/debit/prepaid/forex/corporate).
+- One page may describe many cards — emit one record per distinct card.
+- card_id = "<issuer_id>__<slug-of-card_name>" (lowercase, hyphens).
+- Always set "source_url" to the exact SOURCE_URL from the document block.
+- Return ONLY the JSON object — no markdown fences, no preamble.
+
+──────────────────────────────────────────────────────
+FEES  (be accurate; leave null if not stated)
+──────────────────────────────────────────────────────
+- All INR amounts as plain numbers (12500, not "₹12,500").
+- Set fees.gst_extra=true if "+GST" / "exclusive of GST" appears.
+- Capture: joining_fee_inr, annual_fee_inr, renewal_fee_inr, fee_waiver_spend_inr,
+  addon_card_fee_inr, fx_markup_pct, cash_advance_fee_pct,
+  finance_charge_pct_mo (monthly interest), fuel_surcharge_waiver.
+
+──────────────────────────────────────────────────────
+REWARDS  (be THOROUGH — capture every category mentioned)
+──────────────────────────────────────────────────────
+- Convert reward phrases → base_rate_pct:
+    "1 RP per ₹150, 1 RP = ₹0.25"  → 0.25/150*100 = 0.167
+    "5% cashback"                   → 5.0
+    "2X points on all spends"       → multiply base by 2
+- For EVERY accelerated category (dining, travel, grocery, fuel, online, international,
+  entertainment, UPI, utilities, insurance, etc.) add an entry to rewards.accelerated:
+  {category, rate_pct, cap_inr (monthly/annual cap if stated), notes}.
+- List ALL redemption modes (statement credit, flights, hotels, Amazon Pay,
+  vouchers, merchandise, miles transfer, etc.) in rewards.redemption_modes.
+- Capture: currency (points/miles/cashback/neucoins/…), point_value_inr,
+  expiry_months, exclusions (categories that earn no reward).
+
+──────────────────────────────────────────────────────
+MILESTONES  (capture every tier)
+──────────────────────────────────────────────────────
+- For each spend threshold that unlocks a reward, add a milestone:
+  {spend_inr, reward (full text), value_inr, period (monthly/quarterly/annual/anniversary)}.
+- Examples: fee waiver on ₹1L spend, 5000 bonus points at ₹2L quarterly spend,
+  free flight voucher on ₹4L annual spend.
+
+──────────────────────────────────────────────────────
+WELCOME BENEFIT
+──────────────────────────────────────────────────────
+- welcome_benefit: a single string listing EVERYTHING given on joining/activation —
+  bonus points, vouchers, gift cards, cashback, subscriptions, merchandise.
+  Use the exact text from the page; do not truncate.
+
+──────────────────────────────────────────────────────
+PARTNER OFFERS  (brand-specific cashback / discounts)
+──────────────────────────────────────────────────────
+- For EVERY named brand offer, add {partner, benefit} to partner_offers.
+- Partners to look for: Swiggy, Zomato, Amazon, Flipkart, BookMyShow, Myntra,
+  Ola, Uber, IRCTC, MakeMyTrip, Cleartrip, Nykaa, BigBasket, Blinkit, PhonePe,
+  Paytm, Google Pay, Tata Neu, Cred, Cult.fit, Lenskart, and any other named brand.
+- benefit must include: cashback %, max cashback INR, min spend INR (if stated),
+  how many times per month/quarter, and any other conditions.
+  Example: "10% cashback up to ₹100 per order, max 3 orders/month, min spend ₹149"
+
+──────────────────────────────────────────────────────
+LOUNGE ACCESS
+──────────────────────────────────────────────────────
+- domestic_visits_year, international_visits_year (total per year or per quarter×4).
+- guest_allowed (true/false), program (Priority Pass / DreamFolks / LoungeKey / own).
+- spend_unlock_inr: minimum quarterly/monthly spend to activate lounge benefit.
+
+──────────────────────────────────────────────────────
+INSURANCE
+──────────────────────────────────────────────────────
+- air_accident_inr, lost_card_inr, purchase_protection_inr, travel_inr.
+
+──────────────────────────────────────────────────────
+PERKS  (catch-all — be THOROUGH, use exact page wording)
+──────────────────────────────────────────────────────
+For every benefit not captured above, add {kind, value} to perks.
+Kinds to look for (not exhaustive):
+  golf            – complimentary rounds, green-fee waivers
+  movie           – free tickets/month, discount at PVR/INOX/BookMyShow
+  dining          – discount % at partner restaurants, complimentary meals
+  hotel           – complimentary nights, upgrade, late checkout
+  concierge       – 24/7 concierge, travel desk
+  spa             – complimentary treatments, discount at partner spas
+  railway_lounge  – domestic railway lounge visits
+  subscription    – free/discounted OTT, Zomato Gold, Amazon Prime, etc.
+  roadside_assist – roadside breakdown assistance
+  golf_simulator  – indoor golf simulator access
+  forex_card_perk – zero cross-currency markup, emergency cash abroad
+  emi_conversion  – no-cost EMI, instant EMI on large purchases
+  contactless     – tap-to-pay, UPI linkage
+  virtual_card    – instant virtual card on approval
+  annual_voucher  – yearly lifestyle/travel/shopping voucher
+
+──────────────────────────────────────────────────────
+ELIGIBILITY
+──────────────────────────────────────────────────────
+- min_age, max_age, min_income_inr_year, min_credit_score, salaried, self_employed.
+
+──────────────────────────────────────────────────────
+OTHER FIELDS
+──────────────────────────────────────────────────────
+- apply_url: the direct application URL if present on the page.
+- card_material: "metal" / "plastic" / "virtual" if explicitly stated.
+- confidence: 0–1 reflecting how complete the extracted data is.
+- Be CONSERVATIVE about fees (null if unsure).
+  Be COMPREHENSIVE about benefits (capture everything mentioned)."""
 
 
 # ── Key rotation ──────────────────────────────────────────────────────────────
@@ -98,6 +190,29 @@ def _mark_exhausted(index: int) -> None:
     _key_index = (index + 1) % len(_keys)
 
 
+# ── Groq fallback ─────────────────────────────────────────────────────────────
+
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+def _try_groq(prompt: str) -> str | None:
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        from groq import Groq
+        client = Groq(api_key=key)
+        resp = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        log.error("Groq call failed: %s", e)
+        return None
+
+
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_cards(batch: list[dict]) -> list[dict] | None:
@@ -123,13 +238,17 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
         )
     prompt = f"{SYSTEM}\n\n" + "\n\n".join(parts)
 
-    # try each available key
+    # try each available Gemini key, then fall back to Groq
+    idx = -1
     while True:
         slot = _get_client()
         if slot is None:
-            log.error("All %d Gemini key(s) exhausted for today. "
-                      "Resets at midnight PT.", len(_keys))
-            return None
+            log.warning("All Gemini key(s) exhausted — trying Groq fallback")
+            raw = _try_groq(prompt)
+            if raw is None:
+                log.error("All LLM providers exhausted.")
+                return None
+            break
 
         idx, client = slot
         try:
@@ -177,6 +296,6 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
                      c.get("card_id"), [e.message for e in errs[:3]])
         out.append(c)
 
-    log.info("extracted %d card(s) from %d page(s) using key #%d",
-             len(out), len(valid), idx + 1)
+    provider = "groq" if idx == -1 else f"gemini key #{idx + 1}"
+    log.info("extracted %d card(s) from %d page(s) via %s", len(out), len(valid), provider)
     return out

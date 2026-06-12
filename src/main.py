@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from .fetch import fetch, sha256
 from .scrape_issuers import collect_detail_urls
 from .discover import discover_candidate_urls
-from .extract import extract_cards
+from .parse import parse_card
 from .normalize import ensure_card_id, stamp, dedupe
 from . import store
 
@@ -19,9 +19,8 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("main")
 OUT = Path("out"); OUT.mkdir(exist_ok=True)
 
-BATCH_SIZE = int(os.getenv("LLM_BATCH_SIZE", "10"))
-TEST_RUN   = int(os.getenv("TEST_RUN", "0"))
-TEST_URLS  = os.getenv("TEST_URLS", "0") == "1"
+TEST_RUN  = int(os.getenv("TEST_RUN", "0"))
+TEST_URLS = os.getenv("TEST_URLS", "0") == "1"
 
 # Hardcoded smoke-test URLs — one from each major issuer type
 _SMOKE_TEST_URLS = [
@@ -48,13 +47,20 @@ _JUNK_DOMAINS = frozenset({
     "static.bankbazaar.com", "images.moneycontrol.com",
     "stat1.moneycontrol.com", "rupay.co.in", "npci.org.in",
 })
-_SKIP_PATH_RE = re.compile(
-    r"/(compare|offers?|loan-on|balance-on|other-benefits|faq|apply|"
-    r"eligibility|fees?|charges?|contact|login|register|sitemap|privacy|"
-    r"terms|legal|press|careers?|support|help|download|app|lounge|festive|"
-    r"personal-loan|bill-payment|customer-care|negative-balance|"
-    r"different-types|top-10|lounge-access|zero-forex-markup|"
-    r"best-lifetime|best-international|best-secured|travel-credit-cards$)(/|$)",
+# Exact path-segment blocklist (e.g. /faq, /login, /cancellation)
+_SKIP_SEGS = frozenset({
+    "compare", "faq", "apply", "eligibility", "contact", "login", "register",
+    "sitemap", "legal", "press", "support", "help", "download", "lounge",
+    "cancellation", "referral", "experience", "calculator", "festive",
+    "offers", "offer", "app", "careers", "career",
+})
+# Sub-string match within a segment (catches compound names like terms-and-conditions)
+_SKIP_SEG_RE = re.compile(
+    r"emi|terms|fee|charge|privacy|personal-loan|bill-pay|"
+    r"customer-care|negative-balance|do-not-call|credit-builder|"
+    r"credit-card-service|different-type|top-\d|lounge-access|"
+    r"zero-forex|best-lifetime|best-international|best-secured|"
+    r"travel-credit-card|loan-on|balance-on",
     re.IGNORECASE,
 )
 _ALLOWED_DISCOVERY_DOMAINS = frozenset({
@@ -71,18 +77,13 @@ def _should_fetch(url: str, is_discovery: bool = False) -> bool:
     if f".{ext}" in _JUNK_EXTENSIONS: return False
     root = ".".join(host.split(".")[-2:]) if host else ""
     if root in _JUNK_DOMAINS or host in _JUNK_DOMAINS: return False
-    if _SKIP_PATH_RE.search(parsed.path): return False
+    segments = [s for s in path.split("/") if s]
+    if any(s in _SKIP_SEGS for s in segments): return False
+    if any(_SKIP_SEG_RE.search(s) for s in segments): return False
     if is_discovery and root not in _ALLOWED_DISCOVERY_DOMAINS: return False
     return True
 
 
-# ── Gemini circuit breaker ────────────────────────────────────────────────────
-
-_gemini_failures  = 0
-_GEMINI_THRESHOLD = 3
-
-def _gemini_dead() -> bool:
-    return _gemini_failures >= _GEMINI_THRESHOLD
 
 
 # ── URL gathering ─────────────────────────────────────────────────────────────
@@ -155,49 +156,27 @@ def fetch_page(row: dict) -> dict | None:
     }
 
 
-# ── LLM flush ────────────────────────────────────────────────────────────────
+# ── Process one page ─────────────────────────────────────────────────────────
 
-def flush_batch(batch: list[dict]) -> list[dict]:
-    global _gemini_failures
-    if not batch:
-        return []
+def process_page(page: dict) -> list[dict]:
+    """Parse a fetched page and persist the extracted card(s)."""
+    cards_raw = parse_card(page)
 
-    log.info("LLM batch: %d pages → 1 call", len(batch))
-    cards = extract_cards(batch)
-
-    if cards is None:
-        _gemini_failures += 1
-        log.warning("Gemini error #%d/%d — sources NOT marked",
-                    _gemini_failures, _GEMINI_THRESHOLD)
-        if _gemini_dead():
-            log.error("Gemini quota exhausted — stopping LLM calls for this run.")
-        return []
-
-    _gemini_failures = 0
-
-    if not cards:
-        for page in batch:
-            store.mark_source(page["source_url"], sha=page["sha"], etag=page["etag"])
-        return []
-
-    by_url: dict[str, list] = {p["source_url"]: [] for p in batch}
-    for c in cards:
-        src = c.get("source_url") or batch[0]["source_url"]
-        by_url.setdefault(src, []).append(c)
+    # parse_card returns a single dict; wrap it for uniform handling
+    if isinstance(cards_raw, dict):
+        cards_raw = [cards_raw] if cards_raw else []
 
     out = []
-    for page in batch:
-        url = page["source_url"]
-        for c in by_url.get(url, []):
-            c["raw_text_sha256"] = page["sha"]
-            c = stamp(ensure_card_id(c))
-            existing = store.get_existing(c["card_id"])
-            if existing:
-                c["first_seen_at"] = existing.get("first_seen_at", c["first_seen_at"])
-            store.upsert_card(c)
-            out.append(c)
-        store.mark_source(url, sha=page["sha"], etag=page["etag"])
+    for c in cards_raw:
+        c["raw_text_sha256"] = page["sha"]
+        c = stamp(ensure_card_id(c))
+        existing = store.get_existing(c["card_id"])
+        if existing:
+            c["first_seen_at"] = existing.get("first_seen_at", c["first_seen_at"])
+        store.upsert_card(c)
+        out.append(c)
 
+    store.mark_source(page["source_url"], sha=page["sha"], etag=page["etag"])
     return out
 
 
@@ -206,18 +185,13 @@ def flush_batch(batch: list[dict]) -> list[dict]:
 def main() -> int:
     started = time.time()
     urls    = gather_urls()
-    log.info("processing %d urls (batch=%d%s)",
-             len(urls), BATCH_SIZE,
-             ", TEST_URLS" if TEST_URLS else f", TEST_RUN={TEST_RUN}" if TEST_RUN else "")
+    log.info("processing %d urls%s",
+             len(urls),
+             " (TEST_URLS)" if TEST_URLS else f" (TEST_RUN={TEST_RUN})" if TEST_RUN else "")
 
     all_cards: list[dict] = []
-    batch:     list[dict] = []
 
     for i, row in enumerate(urls, 1):
-        if _gemini_dead() and not batch:
-            log.warning("circuit breaker — skipping remaining %d urls", len(urls) - i + 1)
-            break
-
         log.info("[%d/%d] %s", i, len(urls), row["url"])
         try:
             page = fetch_page(row)
@@ -226,14 +200,12 @@ def main() -> int:
             page = None
 
         if page:
-            batch.append(page)
-
-        if len(batch) >= BATCH_SIZE or (i == len(urls) and batch):
             try:
-                all_cards.extend(flush_batch(batch))
+                cards = process_page(page)
+                all_cards.extend(cards)
+                log.info("  → %d card(s) extracted", len(cards))
             except Exception as e:
-                log.exception("flush error: %s", e)
-            batch = []
+                log.exception("parse error %s: %s", row["url"], e)
 
     final = dedupe(all_cards)
     (OUT / "cards.json").write_text(json.dumps(final, indent=2, default=str))

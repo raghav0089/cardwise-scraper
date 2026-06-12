@@ -9,6 +9,7 @@
     "issuer_name":      { "type": "string" },
     "card_name":        { "type": "string" },
     "card_variant":     { "type": ["string","null"] },
+    "card_material":    { "type": ["string","null"], "enum": [null,"metal","plastic","virtual","co-branded"] },
     "network":          { "type": ["string","null"], "enum": [null,"Visa","Mastercard","RuPay","Amex","Diners","Discover"] },
     "category":         { "type": "string", "enum": ["credit","debit","prepaid","forex","corporate","business","transit","fuel","metal","virtual","other"] },
     "segment":          { "type": ["string","null"], "enum": [null,"entry","mid","premium","super-premium","invite-only","student","secured","nri"] },
@@ -35,9 +36,9 @@
     "rewards": {
       "type": "object",
       "properties": {
-        "base_rate_pct":          { "type": ["number","null"] },
-        "currency":               { "type": ["string","null"], "enum": [null,"points","miles","cashback","neucoins","edge_miles","cred_coins"] },
-        "point_value_inr":        { "type": ["number","null"] },
+        "base_rate_pct":    { "type": ["number","null"] },
+        "currency":         { "type": ["string","null"], "enum": [null,"points","miles","cashback","neucoins","edge_miles","cred_coins","other"] },
+        "point_value_inr":  { "type": ["number","null"] },
         "accelerated": {
           "type": "array",
           "items": {
@@ -50,9 +51,9 @@
             }
           }
         },
-        "exclusions":             { "type": "array", "items": { "type": "string" } },
-        "redemption_modes":       { "type": "array", "items": { "type": "string" } },
-        "expiry_months":          { "type": ["integer","null"] }
+        "exclusions":         { "type": "array", "items": { "type": "string" } },
+        "redemption_modes":   { "type": "array", "items": { "type": "string" } },
+        "expiry_months":      { "type": ["integer","null"] }
       }
     },
 
@@ -61,45 +62,60 @@
       "items": {
         "type": "object",
         "properties": {
-          "spend_inr":    { "type": "number" },
-          "reward":       { "type": "string" },
-          "value_inr":    { "type": ["number","null"] },
-          "period":       { "type": ["string","null"], "enum": [null,"monthly","quarterly","anniversary","annual"] }
+          "spend_inr":  { "type": "number" },
+          "reward":     { "type": "string" },
+          "value_inr":  { "type": ["number","null"] },
+          "period":     { "type": ["string","null"], "enum": [null,"monthly","quarterly","anniversary","annual"] }
         }
       }
     },
 
-    "welcome_benefit":   { "type": ["string","null"] },
+    "welcome_benefit": { "type": ["string","null"] },
+
+    "partner_offers": {
+      "type": "array",
+      "description": "Brand-specific cashback / discount offers (Swiggy, Amazon, BookMyShow, etc.)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "partner":  { "type": "string" },
+          "benefit":  { "type": "string", "description": "Full offer text including %, max amount, min spend, frequency" }
+        },
+        "required": ["partner","benefit"]
+      }
+    },
 
     "lounge_access": {
       "type": "object",
       "properties": {
-        "domestic_visits_year":    { "type": ["integer","null"] },
+        "domestic_visits_year":      { "type": ["integer","null"] },
         "international_visits_year": { "type": ["integer","null"] },
-        "guest_allowed":           { "type": ["boolean","null"] },
-        "program":                 { "type": ["string","null"] },
-        "spend_unlock_inr":        { "type": ["number","null"] }
+        "guest_allowed":             { "type": ["boolean","null"] },
+        "program":                   { "type": ["string","null"] },
+        "spend_unlock_inr":          { "type": ["number","null"] }
       }
     },
 
     "insurance": {
       "type": "object",
       "properties": {
-        "air_accident_inr":   { "type": ["number","null"] },
-        "lost_card_inr":      { "type": ["number","null"] },
-        "purchase_protection_inr": { "type": ["number","null"] },
-        "travel_inr":         { "type": ["number","null"] }
+        "air_accident_inr":          { "type": ["number","null"] },
+        "lost_card_inr":             { "type": ["number","null"] },
+        "purchase_protection_inr":   { "type": ["number","null"] },
+        "travel_inr":                { "type": ["number","null"] }
       }
     },
 
     "perks": {
       "type": "array",
+      "description": "All remaining benefits — golf, movies, dining, spa, concierge, subscriptions, etc.",
       "items": {
         "type": "object",
         "properties": {
-          "kind":    { "type": "string" },
-          "value":   { "type": "string" }
-        }
+          "kind":   { "type": "string" },
+          "value":  { "type": "string" }
+        },
+        "required": ["kind","value"]
       }
     },
 
@@ -116,14 +132,15 @@
       }
     },
 
-    "tnc_url":          { "type": ["string","null"], "format": "uri" },
-    "mitc_url":         { "type": ["string","null"], "format": "uri" },
-    "image_url":        { "type": ["string","null"], "format": "uri" },
-    "source_url":       { "type": "string", "format": "uri" },
-    "source_archive_s3":{ "type": ["string","null"] },
-    "raw_text_sha256":  { "type": ["string","null"] },
-    "last_scraped_at":  { "type": "string", "format": "date-time" },
-    "first_seen_at":    { "type": "string", "format": "date-time" },
-    "confidence":       { "type": "number", "minimum": 0, "maximum": 1 }
+    "apply_url":         { "type": ["string","null"], "format": "uri" },
+    "tnc_url":           { "type": ["string","null"], "format": "uri" },
+    "mitc_url":          { "type": ["string","null"], "format": "uri" },
+    "image_url":         { "type": ["string","null"], "format": "uri" },
+    "source_url":        { "type": "string", "format": "uri" },
+    "source_archive_s3": { "type": ["string","null"] },
+    "raw_text_sha256":   { "type": ["string","null"] },
+    "last_scraped_at":   { "type": "string", "format": "date-time" },
+    "first_seen_at":     { "type": "string", "format": "date-time" },
+    "confidence":        { "type": "number", "minimum": 0, "maximum": 1 }
   }
 }
