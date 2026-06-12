@@ -13,6 +13,10 @@ on:
         description: "Number of issuer URLs to process (0 = full run)"
         type: number
         default: 0
+      max_cards:
+        description: "Stop after extracting this many cards (0 = no limit)"
+        type: number
+        default: 0
 
 jobs:
   scrape:
@@ -36,12 +40,13 @@ jobs:
           GROQ_API_KEY:     ${{ secrets.GROQ_API_KEY }}
           AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION:       ap-south-1
-          DDB_CARDS_TABLE:  ${{ secrets.DDB_CARDS_TABLE }}
-          DDB_SOURCES_TABLE: ${{ secrets.DDB_SOURCES_TABLE }}
-          S3_BUCKET:        ${{ secrets.S3_BUCKET }}
+          AWS_REGION:        ap-south-1
+          DDB_CARDS_TABLE:   cards_master
+          DDB_SOURCES_TABLE: cards_sources
+          S3_BUCKET:         ${{ secrets.S3_BUCKET }}
           TEST_URLS:        ${{ inputs.test_urls && '1' || '0' }}
           TEST_RUN:         ${{ inputs.test_run || '0' }}
+          MAX_CARDS:        ${{ inputs.max_cards || '0' }}
         run: python -m src.main
 
       - name: Upload cards.json artifact

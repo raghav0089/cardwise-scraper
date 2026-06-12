@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from .fetch import fetch, sha256
 from .scrape_issuers import collect_detail_urls
 from .discover import discover_candidate_urls
-from .parse import parse_card
+from .parse import parse_cards
 from .normalize import ensure_card_id, stamp, dedupe
 from . import store
 
@@ -21,6 +21,7 @@ OUT = Path("out"); OUT.mkdir(exist_ok=True)
 
 TEST_RUN  = int(os.getenv("TEST_RUN", "0"))
 TEST_URLS = os.getenv("TEST_URLS", "0") == "1"
+MAX_CARDS = int(os.getenv("MAX_CARDS", "0"))   # 0 = no limit
 
 # Hardcoded smoke-test URLs — one from each major issuer type
 _SMOKE_TEST_URLS = [
@@ -160,11 +161,7 @@ def fetch_page(row: dict) -> dict | None:
 
 def process_page(page: dict) -> list[dict]:
     """Parse a fetched page and persist the extracted card(s)."""
-    cards_raw = parse_card(page)
-
-    # parse_card returns a single dict; wrap it for uniform handling
-    if isinstance(cards_raw, dict):
-        cards_raw = [cards_raw] if cards_raw else []
+    cards_raw = parse_cards(page)
 
     out = []
     for c in cards_raw:
@@ -184,6 +181,8 @@ def process_page(page: dict) -> list[dict]:
 
 def main() -> int:
     started = time.time()
+    log.info("DynamoDB enabled=%s  (region=%s  cards=%s  sources=%s)",
+             store._AWS_ENABLED, store.REGION, store._CARDS_NAME, store._SOURCES_NAME)
     urls    = gather_urls()
     log.info("processing %d urls%s",
              len(urls),
@@ -192,6 +191,10 @@ def main() -> int:
     all_cards: list[dict] = []
 
     for i, row in enumerate(urls, 1):
+        if MAX_CARDS and len(all_cards) >= MAX_CARDS:
+            log.info("MAX_CARDS=%d reached — stopping early", MAX_CARDS)
+            break
+
         log.info("[%d/%d] %s", i, len(urls), row["url"])
         try:
             page = fetch_page(row)
@@ -203,7 +206,10 @@ def main() -> int:
             try:
                 cards = process_page(page)
                 all_cards.extend(cards)
-                log.info("  → %d card(s) extracted", len(cards))
+                log.info("  → %d card(s) extracted  (total so far: %d)", len(cards), len(all_cards))
+                # Write incrementally so the file is useful even if the run is interrupted
+                (OUT / "cards.json").write_text(
+                    json.dumps(dedupe(all_cards), indent=2, default=str))
             except Exception as e:
                 log.exception("parse error %s: %s", row["url"], e)
 

@@ -9,10 +9,10 @@ from decimal import Decimal
 
 log = logging.getLogger(__name__)
 
-REGION        = os.getenv("AWS_REGION",        "ap-south-1").strip()
-BUCKET        = os.getenv("S3_BUCKET",         "").strip()
-_CARDS_NAME   = os.getenv("DDB_CARDS_TABLE",   "cards_master").strip()
-_SOURCES_NAME = os.getenv("DDB_SOURCES_TABLE", "cards_sources").strip()
+REGION        = (os.getenv("AWS_REGION")        or "ap-south-1").strip()
+BUCKET        = (os.getenv("S3_BUCKET")         or "").strip()
+_CARDS_NAME   = (os.getenv("DDB_CARDS_TABLE")   or "cards_master").strip()
+_SOURCES_NAME = (os.getenv("DDB_SOURCES_TABLE") or "cards_sources").strip()
 
 _AWS_ENABLED  = bool(REGION and _CARDS_NAME)
 
@@ -23,13 +23,36 @@ _CARDS   = None
 _SOURCES = None
 
 
+def _ensure_table(resource, name: str, pk: str):
+    """Return the Table, creating it (PAY_PER_REQUEST) if it doesn't exist yet."""
+    from botocore.exceptions import ClientError
+    table = resource.Table(name)
+    try:
+        table.load()
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "ResourceNotFoundException":
+            raise
+        log.info("Table %s not found — creating with PAY_PER_REQUEST billing", name)
+        table = resource.create_table(
+            TableName=name,
+            KeySchema=[{"AttributeName": pk, "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": pk, "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        table.meta.client.get_waiter("table_exists").wait(TableName=name)
+        log.info("Table %s created", name)
+    return table
+
+
 def _ddb():
     global _dynamodb, _CARDS, _SOURCES
     if _dynamodb is None:
+        log.info("DynamoDB init: region=%s cards=%s sources=%s",
+                 REGION, _CARDS_NAME, _SOURCES_NAME)
         import boto3
         _dynamodb = boto3.resource("dynamodb", region_name=REGION)
-        _CARDS   = _dynamodb.Table(_CARDS_NAME)
-        _SOURCES = _dynamodb.Table(_SOURCES_NAME)
+        _CARDS   = _ensure_table(_dynamodb, _CARDS_NAME,   "card_id")
+        _SOURCES = _ensure_table(_dynamodb, _SOURCES_NAME, "url")
     return _CARDS, _SOURCES
 
 
@@ -78,12 +101,14 @@ def get_existing(card_id: str) -> dict | None:
 
 def upsert_card(card: dict) -> None:
     if not _AWS_ENABLED:
+        log.debug("DDB disabled — skipping upsert for %s", card.get("card_id"))
         return
     try:
         cards, _ = _ddb()
         cards.put_item(Item=_to_ddb(card))
+        log.debug("DDB upsert OK: %s", card.get("card_id"))
     except Exception as e:
-        log.warning("DDB upsert_card failed %s: %s", card.get("card_id"), e)
+        log.error("DDB upsert_card FAILED %s: %s", card.get("card_id"), e)
 
 
 def mark_source(url: str, *, sha: str, etag: str | None) -> None:
