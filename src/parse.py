@@ -64,6 +64,35 @@ def _num(s: str) -> Optional[float]:
 def _ctx(md: str, m: re.Match, before: int = 60, after: int = 200) -> str:
     return md[max(0, m.start() - before): m.end() + after].replace("\n", " ").strip()
 
+# Jina adds "Title: ...\nURL Source: ...\nMarkdown Content:\n" at the start of every page
+_JINA_HEADER_RE = re.compile(
+    r"^(?:Title|URL Source|Markdown Content)\s*:[^\n]*\n?", re.I | re.MULTILINE)
+
+def _clean_text(text: str) -> str:
+    """Strip Jina headers, URLs, markdown noise from a display snippet."""
+    text = _JINA_HEADER_RE.sub("", text)
+    text = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', text)   # [label](url) → label
+    text = re.sub(r'https?://\S+', '', text)                # bare URLs
+    text = re.sub(r'[*_`#|]', ' ', text)                   # markdown punctuation
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:250]
+
+def _clean_card_name(raw: str) -> str:
+    """Turn a noisy Jina/SEO title into a clean card product name."""
+    # [Card Name](url) → Card Name
+    val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', raw).strip()
+    # Strip "| Bank Name" suffix  (Jina Title: format)
+    val = re.sub(r'\s*\|.*$', '', val).strip()
+    # Strip ": marketing tagline" when the part before colon already names a card
+    m = re.match(r'^(.{5,60}(?:credit|debit|prepaid|forex|card))\s*:.+$', val, re.I)
+    if m:
+        val = m.group(1).strip()
+    # Strip " - tagline" similarly
+    m = re.match(r'^(.{5,60}(?:credit|debit|prepaid|forex|card))\s*-.+$', val, re.I)
+    if m and len(m.group(1)) < len(val) - 5:
+        val = m.group(1).strip()
+    return val.strip()
+
 
 # ─────────────────────────────────────────────────────────────
 # Multi-card page detection & splitting
@@ -126,12 +155,11 @@ def _name(md: str) -> Optional[str]:
     for pat in _NAME_PATS:
         m = pat.search(md)
         if m:
-            val = m.group(1).strip().rstrip("|").strip()
-            # Strip markdown link syntax: [Card Name](url) → Card Name
-            val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', val).strip()
-            # Reject generic navigation titles
+            val = _clean_card_name(m.group(1).strip())
+            if not val:
+                continue
             if _GENERIC_NAME_RE.search(val):
-                return None
+                continue
             if 5 < len(val) < 120 and not re.search(r"log\s*in|sign\s*in|menu|nav", val, re.I):
                 return val
     return None
@@ -157,7 +185,8 @@ _SEG_RE = {
     "super-premium": re.compile(r"super.?premium|ultra.?premium", re.I),
     "premium":       re.compile(r"\bpremium\b", re.I),
     "student":       re.compile(r"\bstudent\b", re.I),
-    "secured":       re.compile(r"\bsecured\b|\bagainst\s+fd\b", re.I),
+    # Require "secured card/credit" or "against FD" — avoid false hits on "secure payment"
+    "secured":       re.compile(r"secured\s+(?:credit\s+)?card|against\s+(?:fd|fixed\s+deposit)", re.I),
     "entry":         re.compile(r"\bentry.?level\b|\bbasic\b", re.I),
 }
 
@@ -186,7 +215,7 @@ def _fees(md: str) -> dict:
         if m := pat.search(md):
             out[key] = _num(m.group(1))
     if m := _FUEL_RE.search(md):
-        out["fuel_surcharge_waiver"] = m.group(0).strip()
+        out["fuel_surcharge_waiver"] = _clean_text(m.group(0))
     if _GST_RE.search(md):
         out["gst_extra"] = True
     return out
@@ -196,19 +225,29 @@ def _fees(md: str) -> dict:
 # Rewards  —  normalise everything to base_rate_pct (% of spend)
 # ─────────────────────────────────────────────────────────────
 
+# N points/miles per ₹X spend  (handles prefixes: "EDGE REWARD Points", "Reward Points", etc.)
 _RP_PER_SPEND = re.compile(
-    r"(\d+)\s*(?:reward\s+)?points?\s+(?:per|for\s+every|on\s+every)\s+[₹rs.]*\s*([\d,]+)", re.I)
-_CASHBACK_ALL = re.compile(r"([\d.]+)\s*%\s*cashback\s+on\s+all", re.I)
-_POINT_VAL    = re.compile(r"1\s*(?:reward\s+|edge\s+|indus)?(?:point|mile|rp|rm)\s*[=:]\s*[₹rs.]*\s*([\d.]+)", re.I)
-_CURR_RE      = re.compile(
+    r"(\d+)\s+(?:\w+\s+){0,3}points?\s+(?:per|for\s+every|on\s+every)\s+[₹rs.]*\s*([\d,]+)", re.I)
+# N% cashback on all spends (base rate)
+_CASHBACK_ALL = re.compile(r"([\d.]+)\s*%\s*cash\s*back\s+on\s+all", re.I)
+# N% cashback / reward on [specific category]  — also catches "5% on Swiggy"
+_CASHBACK_CAT = re.compile(
+    r"(\d+(?:\.\d+)?)\s*%\s*(?:cash\s*back|cashback|reward\s+points?|rewards?)?"
+    r"\s+on\s+((?!all\b)[\w\s&/,+.\-]{3,60}?)(?=\s*[,.()\n*]|$)", re.I)
+# NX multiplier: "5X reward points on dining"
+_MULTIPLIER_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*[xX]\s+(?:reward\s+)?points?\s+on\s+([\w\s&/,\-]{3,60}?)(?=[,.()\n]|$)", re.I)
+# Cap on category rewards: "up to ₹X per month/year"
+_CAP_RE        = re.compile(r"(?:up\s+to|max(?:imum)?)\s+[₹rs.]*\s*([\d,]+)\s*(?:per\s+(?:month|quarter|year))?", re.I)
+_POINT_VAL     = re.compile(
+    r"1\s+(?:[\w]+\s+){0,3}(?:point|mile|rp)\s*[=:]\s*[₹rs.]*\s*([\d.]+)", re.I)
+_CURR_RE       = re.compile(
     r"\b(reward\s+points?|cashback|edge\s+miles?|indus\s*miles?|neucoins|"
     r"membership\s+rewards?|kotak\s+points?|cred\s+coins|1fc\s+points?|scapia\s+coins?)\b", re.I)
-_ACC_RE       = re.compile(
-    r"(\d+(?:\.\d+)?)\s*(?:x\b|X\b|%)\s*(?:reward\s+points?|rp|edge\s+miles?|cashback)?\s+"
-    r"on\s+([\w\s&/,\-]+?)(?=[,.()\n]|$)", re.I)
-_EXCL_RE      = re.compile(r"(?:no\s+rewards?|not\s+earned?|excluded?)\s+on\s+([\w\s,&/]+?)(?=[.\n]|$)", re.I)
-_REDEEM_RE    = re.compile(r"redeem[^\n]*?(?:for|at|against)\s+([\w\s,&/\-]+?)(?=[.\n])", re.I)
-_EXPIRY_RE    = re.compile(r"(?:points?\s+(?:expire|valid)\s+for\s+)?(\d+)\s*months?\s+(?:from|of)", re.I)
+_EXCL_RE       = re.compile(
+    r"(?:no\s+rewards?|not\s+earn(?:ed)?|excluded?)\s+on\s+([\w\s,&/]+?)(?=[.\n]|$)", re.I)
+_REDEEM_RE     = re.compile(r"redeem[^\n]*?(?:for|at|against)\s+([\w\s,&/\-]+?)(?=[.\n])", re.I)
+_EXPIRY_RE     = re.compile(r"(?:points?\s+(?:expire|valid)\s+for\s+)?(\d+)\s*months?\s+(?:from|of)", re.I)
 
 def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
     out: dict = {}
@@ -222,46 +261,61 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
         pv = _KNOWN_POINT_VALUE[issuer_id]
         out["point_value_inr"] = pv
 
-    # Base rate
+    # Currency name
+    if m := _CURR_RE.search(md):
+        out["currency"] = m.group(1).title()
+    elif issuer_id and issuer_id in _ISSUER_CURRENCY:
+        out["currency"] = _ISSUER_CURRENCY[issuer_id]
+
+    # Base rate — points per spend
     if m := _RP_PER_SPEND.search(md):
         rp, spend = float(m.group(1)), _num(m.group(2))
         if spend and spend > 0:
             out["base_rate_pct"] = round((pv or 0.25) * rp / spend * 100, 4)
-    elif m := _CASHBACK_ALL.search(md):
-        out["base_rate_pct"] = float(m.group(1))
-        out["currency"] = "cashback"
 
-    # Currency name
-    if m := _CURR_RE.search(md):
-        out.setdefault("currency", m.group(1).title())
-    elif issuer_id and issuer_id in _ISSUER_CURRENCY:
-        out.setdefault("currency", _ISSUER_CURRENCY[issuer_id])
+    # Base rate — flat cashback on all spends
+    if not out.get("base_rate_pct"):
+        if m := _CASHBACK_ALL.search(md):
+            out["base_rate_pct"] = float(m.group(1))
+            out.setdefault("currency", "Cashback")
 
-    # Accelerated categories
+    # Accelerated / per-category rates
     acc, seen = [], set()
-    for m in _ACC_RE.finditer(md):
-        rate_str, cat = m.group(1), m.group(2).strip().rstrip(".,")
-        if not cat or cat.lower() in seen or len(cat) > 60:
+
+    # Cashback / reward % per category
+    for m in _CASHBACK_CAT.finditer(md):
+        rate_str = m.group(1)
+        cat      = m.group(2).strip().rstrip(".,").strip()
+        if not cat or len(cat) < 3 or len(cat) > 70 or cat.lower() in seen:
             continue
         seen.add(cat.lower())
-        # Convert "NX" multiplier to actual % using base rate
-        rate = float(rate_str)
-        if "x" in m.group(0).lower() and out.get("base_rate_pct"):
-            rate = round(rate * out["base_rate_pct"], 4)
-        acc.append({"category": cat, "rate_pct": rate, "cap_inr": None, "notes": None})
+        # look for cap in the next 120 chars
+        cap_m = _CAP_RE.search(md, m.end(), m.end() + 120)
+        cap   = _num(cap_m.group(1)) if cap_m else None
+        acc.append({"category": cat, "rate_pct": float(rate_str),
+                    "cap_inr": cap, "notes": None})
+
+    # Multiplier: NX points on category
+    for m in _MULTIPLIER_RE.finditer(md):
+        mult = float(m.group(1))
+        cat  = m.group(2).strip().rstrip(".,").strip()
+        if not cat or cat.lower() in seen:
+            continue
+        seen.add(cat.lower())
+        base = out.get("base_rate_pct") or 0
+        acc.append({"category": cat, "rate_pct": round(mult * base, 4) if base else None,
+                    "cap_inr": None, "notes": f"{mult}X points"})
+
     if acc:
         out["accelerated"] = acc
 
-    # Exclusions
+    # Exclusions & redemption
     excl = [m.group(1).strip() for m in _EXCL_RE.finditer(md)]
     if excl:
         out["exclusions"] = excl
-
-    # Redemption modes
     modes = [m.group(1).strip() for m in _REDEEM_RE.finditer(md)]
     if modes:
         out["redemption_modes"] = modes[:8]
-
     if m := _EXPIRY_RE.search(md):
         out["expiry_months"] = int(m.group(1))
 
@@ -273,11 +327,13 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 _WELCOME_RE = re.compile(
-    r"(?:welcome|joining)\s+(?:benefit|gift|bonus|offer)[s:]*\s*([^.\n]{20,300})", re.I)
+    r"(?:welcome|joining)\s+(?:benefit|gift|bonus|offer)[s:]*\s*([^\n]{20,400})", re.I)
 
 def _welcome(md: str) -> Optional[str]:
     m = _WELCOME_RE.search(md)
-    return m.group(1).strip() if m else None
+    if not m:
+        return None
+    return _clean_text(m.group(1))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -300,7 +356,7 @@ def _milestones(md: str) -> list:
         period = ("monthly" if "month" in ctx else
                   "quarterly" if "quarter" in ctx else
                   "annual" if "annual" in ctx or "year" in ctx else None)
-        out.append({"spend_inr": spend, "reward": m.group(2).strip(),
+        out.append({"spend_inr": spend, "reward": _clean_text(m.group(2)),
                     "value_inr": None, "period": period})
     return out
 
@@ -309,25 +365,44 @@ def _milestones(md: str) -> list:
 # Lounge
 # ─────────────────────────────────────────────────────────────
 
-_DOM_LG  = re.compile(r"(\d+)\s+(?:complimentary\s+)?domestic\s+(?:airport\s+)?lounge", re.I)
-_INTL_LG = re.compile(r"(\d+)\s+(?:complimentary\s+)?international\s+(?:airport\s+)?lounge", re.I)
+# "N domestic airport lounge" or "N lounge visits per quarter/year"
+_DOM_LG  = re.compile(
+    r"(\d+)\s+(?:complimentary\s+)?(?:domestic\s+)?(?:airport\s+)?lounge"
+    r"(?:\s+(?:visit|access|trip)s?)?(?:[^.\n]{0,40}domestic)?", re.I)
+_INTL_LG = re.compile(
+    r"(\d+)\s+(?:complimentary\s+)?international\s+(?:airport\s+)?lounge"
+    r"(?:\s+(?:visit|access|trip)s?)?", re.I)
 _LG_PROG = re.compile(r"\b(Priority\s+Pass|DreamFolks|LoungeKey|Lounge\s+Key)\b", re.I)
-_LG_SPND = re.compile(r"lounge[^.\n]{0,80}spend[^₹\d]{0,20}" + _INR, re.I)
-_QTR     = re.compile(r"per\s+quarter|quarterly", re.I)
-_GUEST   = re.compile(r"guest|complimentary\s+companion", re.I)
+# Spend required to unlock lounge: "spend ₹X per quarter" or "minimum spend ₹X"
+_LG_SPND = re.compile(
+    r"(?:lounge[^.\n]{0,100}|unlock\s+lounge[^.\n]{0,60})"
+    r"(?:spend|spends?)[^₹\d\n]{0,20}" + _INR, re.I)
+_QTR_RE  = re.compile(r"per\s+quarter|quarterly|every\s+quarter", re.I)
+_HALF_RE = re.compile(r"per\s+half.?year|bi.?annual", re.I)
+_GUEST   = re.compile(r"\bguest\b|complimentary\s+companion", re.I)
 
 def _lounge(md: str) -> dict:
     out: dict = {}
+
     if m := _DOM_LG.search(md):
         v = int(m.group(1))
-        if _QTR.search(_ctx(md, m, after=60)):
+        ctx = _ctx(md, m, before=10, after=80)
+        if _QTR_RE.search(ctx):
             v *= 4
+            out["domestic_visits_note"] = f"{m.group(1)} per quarter"
+        elif _HALF_RE.search(ctx):
+            v *= 2
+            out["domestic_visits_note"] = f"{m.group(1)} per half-year"
         out["domestic_visits_year"] = v
+
     if m := _INTL_LG.search(md):
         v = int(m.group(1))
-        if _QTR.search(_ctx(md, m, after=60)):
+        ctx = _ctx(md, m, before=10, after=80)
+        if _QTR_RE.search(ctx):
             v *= 4
+            out["international_visits_note"] = f"{m.group(1)} per quarter"
         out["international_visits_year"] = v
+
     if m := _LG_PROG.search(md):
         out["program"] = m.group(1).replace("  ", " ")
     if m := _LG_SPND.search(md):
@@ -406,7 +481,8 @@ def _perks(md: str) -> list:
     out = []
     for kind, pat in _PERK_PATS:
         if m := pat.search(md):
-            out.append({"kind": kind, "value": _ctx(md, m, before=20, after=180).strip()})
+            raw = _ctx(md, m, before=0, after=220)
+            out.append({"kind": kind, "value": _clean_text(raw)})
     return out
 
 

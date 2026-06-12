@@ -228,12 +228,15 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
 
     parts = []
     for i, p in enumerate(valid, 1):
+        is_listing = p.get("is_listing", False)
+        hint = "LISTING PAGE — extract ALL individual card products mentioned." if is_listing else "DETAIL PAGE — extract the single card described."
         parts.append(
             f"--- DOCUMENT {i} ---\n"
             f"SOURCE_URL: {p['source_url']}\n"
             f"ISSUER_ID_HINT: {p.get('issuer_id') or ''}\n"
-            f"ISSUER_NAME_HINT: {p.get('issuer_name') or ''}\n\n"
-            f"{p['markdown'][:6000]}\n"
+            f"ISSUER_NAME_HINT: {p.get('issuer_name') or ''}\n"
+            f"PAGE_TYPE: {hint}\n\n"
+            f"{p['markdown'][:10000]}\n"
             f"--- END DOCUMENT {i} ---"
         )
     prompt = f"{SYSTEM}\n\n" + "\n\n".join(parts)

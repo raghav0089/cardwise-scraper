@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from .fetch import fetch, sha256
 from .scrape_issuers import collect_detail_urls
 from .discover import discover_candidate_urls
-from .parse import parse_cards
+from .extract import extract_cards
 from .normalize import ensure_card_id, stamp, dedupe
 from . import store
 
@@ -171,12 +171,19 @@ def fetch_page(row: dict) -> dict | None:
 # ── Process one page ─────────────────────────────────────────────────────────
 
 def process_page(page: dict) -> list[dict]:
-    """Parse a fetched page and persist the extracted card(s)."""
-    cards_raw = parse_cards(page)
+    """Extract card(s) from a fetched page via LLM and persist them."""
+    cards_raw = extract_cards([page])
+
+    if cards_raw is None:
+        # All LLM providers quota-exhausted — don't mark source so it retries tomorrow
+        log.warning("LLM quota exhausted for %s — will retry on next run", page["source_url"])
+        return []
 
     out = []
     for c in cards_raw:
         c["raw_text_sha256"] = page["sha"]
+        c.setdefault("issuer_id",   page.get("issuer_id"))
+        c.setdefault("issuer_name", page.get("issuer_name"))
         c = stamp(ensure_card_id(c))
         existing = store.get_existing(c["card_id"])
         if existing:
