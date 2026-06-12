@@ -23,18 +23,20 @@ TEST_RUN  = int(os.getenv("TEST_RUN", "0"))
 TEST_URLS = os.getenv("TEST_URLS", "0") == "1"
 MAX_CARDS = int(os.getenv("MAX_CARDS", "0"))   # 0 = no limit
 
-# Hardcoded smoke-test URLs — one from each major issuer type
+# Hardcoded smoke-test URLs — mix of listing pages and individual card detail pages
 _SMOKE_TEST_URLS = [
-    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards",        "issuer_id": "hdfc",       "issuer_name": "HDFC Bank",         "is_discovery": False},
-    {"url": "https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card", "issuer_id": "icici", "issuer_name": "ICICI Bank", "is_discovery": False},
-    {"url": "https://www.axisbank.com/retail/cards/credit-card",               "issuer_id": "axis",       "issuer_name": "Axis Bank",         "is_discovery": False},
-    {"url": "https://www.sbicard.com/en/personal/credit-cards.page",           "issuer_id": "sbi_card",   "issuer_name": "SBI Card",          "is_discovery": False},
-    {"url": "https://www.kotak.com/en/personal-banking/cards/credit-cards.html","issuer_id": "kotak",     "issuer_name": "Kotak Mahindra Bank","is_discovery": False},
-    {"url": "https://www.sc.com/in/credit-cards/",                             "issuer_id": "standard_chartered", "issuer_name": "Standard Chartered", "is_discovery": False},
-    {"url": "https://www.getonecard.app/",                                     "issuer_id": "onecard",    "issuer_name": "OneCard",           "is_discovery": False},
-    {"url": "https://www.scapia.cards/",                                       "issuer_id": "scapia",     "issuer_name": "Scapia",            "is_discovery": False},
-    {"url": "https://www.axisbank.com/retail/cards/credit-card/flipkart-axis-bank-credit-card", "issuer_id": "flipkart_axis", "issuer_name": "Flipkart Axis", "is_discovery": False},
-    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card", "issuer_id": "swiggy_hdfc", "issuer_name": "Swiggy HDFC", "is_discovery": False},
+    # Listing pages (multi-card split test)
+    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards",        "issuer_id": "hdfc",       "issuer_name": "HDFC Bank",         "is_discovery": False, "is_listing": True},
+    {"url": "https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card", "issuer_id": "icici", "issuer_name": "ICICI Bank", "is_discovery": False, "is_listing": True},
+    {"url": "https://www.sbicard.com/en/personal/credit-cards.page",           "issuer_id": "sbi_card",   "issuer_name": "SBI Card",          "is_discovery": False, "is_listing": True},
+    # Individual card detail pages (single-card extraction test)
+    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/regalia-credit-card",          "issuer_id": "hdfc",    "issuer_name": "HDFC Bank",    "is_discovery": False},
+    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/millennia-credit-card",        "issuer_id": "hdfc",    "issuer_name": "HDFC Bank",    "is_discovery": False},
+    {"url": "https://www.axisbank.com/retail/cards/credit-card/axis-bank-ace-credit-card",           "issuer_id": "axis",    "issuer_name": "Axis Bank",    "is_discovery": False},
+    {"url": "https://www.axisbank.com/retail/cards/credit-card/flipkart-axis-bank-credit-card",      "issuer_id": "axis",    "issuer_name": "Axis Bank",    "is_discovery": False},
+    {"url": "https://www.sbicard.com/en/personal/credit-cards/travel/sbi-card-elite.page",           "issuer_id": "sbi_card","issuer_name": "SBI Card",     "is_discovery": False},
+    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card", "issuer_id": "hdfc",    "issuer_name": "HDFC Bank",    "is_discovery": False},
+    {"url": "https://www.getonecard.app/",                                                            "issuer_id": "onecard", "issuer_name": "OneCard",      "is_discovery": False},
 ]
 
 # ── URL filters ───────────────────────────────────────────────────────────────
@@ -159,6 +161,7 @@ def fetch_page(row: dict) -> dict | None:
         "source_url":  url,
         "issuer_id":   row.get("issuer_id"),
         "issuer_name": row.get("issuer_name"),
+        "is_listing":  row.get("is_listing", False),
         "markdown":    text,
         "sha":         sha,
         "etag":        etag,

@@ -69,9 +69,16 @@ def _ctx(md: str, m: re.Match, before: int = 60, after: int = 200) -> str:
 # Multi-card page detection & splitting
 # ─────────────────────────────────────────────────────────────
 
-# Headings that name a card product (## Card Name)
+# Headings that name a card product.
+# Handles both plain headings (## Regalia Credit Card)
+# and Jina markdown link headings (## [Regalia Credit Card](url))
 _CARD_HDR = re.compile(
-    r"^#{2,3}\s+(.{5,100}(?:credit|debit|prepaid|forex|card|miles|rupay)[^\n]{0,60})$",
+    r"^#{2,3}\s+"                                  # ## or ###
+    r"(?:\[)?"                                     # optional opening [
+    r"([^\]\n]{5,100}"                             # card name (no ] or newline)
+    r"(?:credit|debit|prepaid|forex|card|miles|rupay)"  # must contain a card keyword
+    r"[^\]\n]{0,80})"                              # rest of card name
+    r"(?:\]\([^)]*\))?",                           # optional ](url) — not captured
     re.I | re.MULTILINE,
 )
 
@@ -86,7 +93,9 @@ def _split_sections(md: str) -> list[tuple[str, str]]:
         return []
     sections = []
     for i, m in enumerate(matches):
-        name = m.group(1).strip()
+        name  = m.group(1).strip()
+        # Strip any residual markdown link syntax inside the name
+        name  = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', name).strip()
         start = m.start()
         end   = matches[i + 1].start() if i + 1 < len(matches) else len(md)
         sections.append((name, md[start:end]))
@@ -102,13 +111,27 @@ _NAME_PATS = [
     re.compile(r"^#\s+(.{5,100})", re.MULTILINE),
     re.compile(r"^##\s+(.{5,80})", re.MULTILINE),
 ]
+# Headings that are navigation/marketing, NOT individual card product names
+_GENERIC_NAME_RE = re.compile(
+    r"^(?:get|find|apply|compare|about|faq|faqs|blog|blogs|know|choose|check|"
+    r"explore|discover|learn|why|what|how|tips|type|top\s+\d|all\s+credit|"
+    r"more|see|view|contact|news|media|press|career|privacy|terms|site|"
+    r"eligib|calculat|offers?\s+on|offers\s*$|reward\s+program|reward\s+point|"
+    r"interest\s+rate|annual\s+fee|joining\s+fee|customer\s+care|"
+    r"frequently\s+asked|important\s+information)\b",
+    re.I,
+)
 
 def _name(md: str) -> Optional[str]:
     for pat in _NAME_PATS:
         m = pat.search(md)
         if m:
             val = m.group(1).strip().rstrip("|").strip()
-            # Reject generic titles
+            # Strip markdown link syntax: [Card Name](url) → Card Name
+            val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', val).strip()
+            # Reject generic navigation titles
+            if _GENERIC_NAME_RE.search(val):
+                return None
             if 5 < len(val) < 120 and not re.search(r"log\s*in|sign\s*in|menu|nav", val, re.I):
                 return val
     return None
@@ -486,7 +509,8 @@ def parse_cards(page: dict) -> list[dict]:
     Listing pages (multiple cards) return multiple dicts.
     Product pages return a single dict (or empty list if not a card page).
     """
-    md   = page.get("markdown", "")
+    md         = page.get("markdown", "")
+    is_listing = page.get("is_listing", False)
     base = {
         "issuer_id":   page.get("issuer_id"),
         "issuer_name": page.get("issuer_name"),
@@ -495,16 +519,27 @@ def parse_cards(page: dict) -> list[dict]:
 
     sections = _split_sections(md)
     if sections:
-        # Listing page — parse each card section separately
+        # Listing page with identifiable card sections
         cards = []
         for card_name, section_md in sections:
+            # Skip generic/navigation headings before parsing
+            if _GENERIC_NAME_RE.search(card_name):
+                log.debug("skip generic section: %s", card_name)
+                continue
             card = _parse_one(section_md, base)
             if card:
                 card.setdefault("card_name", card_name)
                 cards.append(card)
-        log.debug("listing page %s → %d cards", base["source_url"], len(cards))
+        log.info("listing page %s → %d card(s) from %d section(s)",
+                 base["source_url"], len(cards), len(sections))
         return cards
-    else:
-        # Product page — single card
-        card = _parse_one(md, base)
-        return [card] if card else []
+
+    if is_listing:
+        # Listing page that didn't split into card sections — skip it.
+        # Individual detail pages collected from this listing will have the data.
+        log.debug("listing page with no splittable sections, skipping: %s", base["source_url"])
+        return []
+
+    # Product/detail page — single card
+    card = _parse_one(md, base)
+    return [card] if card else []
