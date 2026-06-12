@@ -131,12 +131,19 @@ def fetch_page(row: dict) -> dict | None:
         log.debug("pre-filter skip: %s", url)
         return None
 
-    result = fetch(url)
-    if not result.ok:
-        log.warning("fetch failed %s: %s", url, result.error)
-        return None
+    # Listing pages carry pre-fetched HTML from the URL-gather phase — reuse it
+    prefetched = row.get("prefetched_html", "")
+    if prefetched:
+        text = prefetched
+        etag = None
+    else:
+        result = fetch(url)
+        if not result.ok:
+            log.warning("fetch failed %s: %s", url, result.error)
+            return None
+        text = result.text or result.html or ""
+        etag = result.etag
 
-    text = result.text or result.html or ""
     if len(text) < 200:
         log.debug("skip near-empty page: %s", url)
         return None
@@ -146,14 +153,15 @@ def fetch_page(row: dict) -> dict | None:
         log.info("unchanged, skip: %s", url)
         return None
 
-    store.archive_raw(url, result.html)
+    if not prefetched:
+        store.archive_raw(url, text)
     return {
         "source_url":  url,
         "issuer_id":   row.get("issuer_id"),
         "issuer_name": row.get("issuer_name"),
         "markdown":    text,
         "sha":         sha,
-        "etag":        result.etag,
+        "etag":        etag,
     }
 
 
