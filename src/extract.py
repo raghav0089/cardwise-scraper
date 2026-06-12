@@ -11,7 +11,7 @@ automatically. If all keys are exhausted, returns None so the caller knows
 not to mark sources as seen (they'll retry tomorrow).
 """
 from __future__ import annotations
-import os, json, logging
+import os, json, logging, time
 from pathlib import Path
 from jsonschema import Draft7Validator
 from google import genai
@@ -58,6 +58,19 @@ _keys:           list[str] = []
 _key_index:      int       = 0        # which key we're currently using
 _exhausted:      set[int]  = set()    # indices of quota-exhausted keys
 _clients:        dict[int, genai.Client] = {}
+_last_call:      dict[int, float] = {}  # per-key last-call monotonic timestamp
+
+GEMINI_RPM       = int(os.getenv("GEMINI_RPM", "25"))   # conservative under 30 free-tier limit
+_MIN_INTERVAL    = 60.0 / GEMINI_RPM
+
+
+def _key_wait(idx: int) -> None:
+    """Enforce per-key rate limit before making a call with key `idx`."""
+    last = _last_call.get(idx, 0.0)
+    gap  = time.monotonic() - last
+    if gap < _MIN_INTERVAL:
+        time.sleep(_MIN_INTERVAL - gap)
+    _last_call[idx] = time.monotonic()
 
 
 def _get_client() -> tuple[int, genai.Client] | None:
@@ -105,7 +118,7 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
             f"SOURCE_URL: {p['source_url']}\n"
             f"ISSUER_ID_HINT: {p.get('issuer_id') or ''}\n"
             f"ISSUER_NAME_HINT: {p.get('issuer_name') or ''}\n\n"
-            f"{p['markdown'][:12000]}\n"
+            f"{p['markdown'][:6000]}\n"
             f"--- END DOCUMENT {i} ---"
         )
     prompt = f"{SYSTEM}\n\n" + "\n\n".join(parts)
@@ -120,6 +133,7 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
 
         idx, client = slot
         try:
+            _key_wait(idx)
             resp = client.models.generate_content(
                 model=MODEL,
                 contents=prompt,

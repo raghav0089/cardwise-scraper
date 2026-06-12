@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Optional, Iterator
 from urllib.parse import urlparse, urljoin
 
-import requests
+import re, requests
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -195,4 +195,6 @@ def absolutize(base: str, links: list[str]) -> list[str]:
 def harvest_links(html: str, base_url: str) -> list[str]:
     soup  = BeautifulSoup(html or "", "lxml")
     hrefs = [a.get("href") for a in soup.find_all("a", href=True)]
-    return absolutize(base_url, hrefs)
+    # Jina reader returns markdown — extract [text](url) links too
+    md_links = re.findall(r'\]\((https?://[^\s)]+)\)', html or "")
+    return absolutize(base_url, hrefs + md_links)

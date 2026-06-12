@@ -21,12 +21,8 @@ log = logging.getLogger("main")
 OUT = Path("out"); OUT.mkdir(exist_ok=True)
 
 BATCH_SIZE = int(os.getenv("LLM_BATCH_SIZE", "10"))
-GEMINI_RPM = int(os.getenv("GEMINI_RPM", "30"))
 TEST_RUN   = int(os.getenv("TEST_RUN", "0"))
 TEST_URLS  = os.getenv("TEST_URLS", "0") == "1"
-
-_GEMINI_MIN_INTERVAL = 60.0 / GEMINI_RPM
-_last_gemini_call    = 0.0
 
 # Hardcoded smoke-test URLs — one from each major issuer type
 _SMOKE_TEST_URLS = [
@@ -85,14 +81,6 @@ def _should_fetch(url: str, is_discovery: bool = False) -> bool:
 
 _gemini_failures  = 0
 _GEMINI_THRESHOLD = 3
-
-def _gemini_wait() -> None:
-    global _last_gemini_call
-    now = time.monotonic()
-    gap = now - _last_gemini_call
-    if gap < _GEMINI_MIN_INTERVAL:
-        time.sleep(_GEMINI_MIN_INTERVAL - gap)
-    _last_gemini_call = time.monotonic()
 
 def _gemini_dead() -> bool:
     return _gemini_failures >= _GEMINI_THRESHOLD
@@ -175,7 +163,6 @@ def flush_batch(batch: list[dict]) -> list[dict]:
     if not batch:
         return []
 
-    _gemini_wait()
     log.info("LLM batch: %d pages → 1 call", len(batch))
     cards = extract_cards(batch)
 
