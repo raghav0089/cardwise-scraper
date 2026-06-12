@@ -12,7 +12,6 @@ from .scrape_issuers import collect_detail_urls
 from .discover import discover_candidate_urls
 from .extract import extract_cards
 from .normalize import ensure_card_id, stamp, dedupe
-from .diff import diff_card
 from . import store
 
 logging.basicConfig(level=logging.INFO,
@@ -195,20 +194,6 @@ def flush_batch(batch: list[dict]) -> list[dict]:
             existing = store.get_existing(c["card_id"])
             if existing:
                 c["first_seen_at"] = existing.get("first_seen_at", c["first_seen_at"])
-                for change in diff_card(existing, c):
-                    store.record_change(change)
-                    log.info("CHANGE %s :: %s :: %s → %s",
-                             change["card_id"], change["field"],
-                             change["old_value"], change["new_value"])
-            else:
-                store.record_change({
-                    "change_id":   f"{c['card_id']}#new#{c['last_scraped_at']}",
-                    "card_id":     c["card_id"], "field": "_new",
-                    "old_value":   None, "new_value": c.get("card_name"),
-                    "change_type": "new_card",
-                    "detected_at": c["last_scraped_at"],
-                    "source_url":  url,
-                })
             store.upsert_card(c)
             out.append(c)
         store.mark_source(url, sha=page["sha"], etag=page["etag"])

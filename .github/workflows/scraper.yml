@@ -35,10 +35,9 @@ jobs:
           GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
           AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION:       ${{ secrets.AWS_REGION }}
+          AWS_REGION:       ap-south-1
           DDB_CARDS_TABLE:  ${{ secrets.DDB_CARDS_TABLE }}
           DDB_SOURCES_TABLE: ${{ secrets.DDB_SOURCES_TABLE }}
-          DDB_CHANGES_TABLE: ${{ secrets.DDB_CHANGES_TABLE }}
           S3_BUCKET:        ${{ secrets.S3_BUCKET }}
           TEST_URLS:        ${{ inputs.test_urls && '1' || '0' }}
           TEST_RUN:         ${{ inputs.test_run || '0' }}
