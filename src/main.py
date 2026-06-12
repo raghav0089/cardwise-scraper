@@ -181,6 +181,9 @@ def process_page(page: dict) -> list[dict]:
 
     out = []
     for c in cards_raw:
+        if not c.get("card_name"):
+            log.debug("skipping card without card_name from %s", page["source_url"])
+            continue
         c["raw_text_sha256"] = page["sha"]
         c.setdefault("issuer_id",   page.get("issuer_id"))
         c.setdefault("issuer_name", page.get("issuer_name"))

@@ -31,15 +31,18 @@ def dedupe(cards: list[dict]) -> list[dict]:
             by_id[cid] = c; continue
         a, b = by_id[cid], c
         by_id[cid] = a if _populated(a) >= _populated(b) else b
-    # near-duplicate name collapse within same issuer
+    # near-duplicate name collapse within same issuer (skip cards without a name)
     final, used = [], set()
     items = list(by_id.values())
     for i, a in enumerate(items):
         if i in used: continue
+        a_name = a.get("card_name") or ""
         for j in range(i + 1, len(items)):
             b = items[j]
-            if a["issuer_id"] == b["issuer_id"] and \
-               fuzz.token_set_ratio(a["card_name"], b["card_name"]) >= 92:
+            b_name = b.get("card_name") or ""
+            if a_name and b_name and \
+               a.get("issuer_id") == b.get("issuer_id") and \
+               fuzz.token_set_ratio(a_name, b_name) >= 92:
                 used.add(j)
         final.append(a)
     return final
