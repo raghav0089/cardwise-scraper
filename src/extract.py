@@ -162,13 +162,14 @@ segment: entry / mid / premium / super-premium / invite-only / student / secured
 # ── Groq (primary) ────────────────────────────────────────────────────────────
 
 GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-GROQ_RPM     = int(os.getenv("GROQ_RPM", "25"))   # conservative under 30 RPM free limit
+GROQ_RPM     = int(os.getenv("GROQ_RPM", "20"))   # conservative — free tier is 30 RPM / ~6K TPM
 _GROQ_MIN_IV = 60.0 / GROQ_RPM
 
 _groq_keys:        list[str]        = []
 _groq_idx:         int              = 0
-_groq_exhausted:   set[int]         = set()
+_groq_exhausted:   set[int]         = set()   # keys that hit DAILY quota — skip for entire run
 _groq_last_call:   dict[int, float] = {}
+_groq_cooldown:    dict[int, float] = {}       # keys in per-minute cooldown — retry after timestamp
 
 
 def _load_groq_keys() -> list[str]:
@@ -181,6 +182,14 @@ def _load_groq_keys() -> list[str]:
 
 
 def _groq_wait(idx: int) -> None:
+    # Respect per-minute cooldown from a previous rate-limit hit
+    cooldown_until = _groq_cooldown.get(idx, 0.0)
+    now = time.monotonic()
+    if now < cooldown_until:
+        wait_sec = cooldown_until - now
+        log.info("Groq key #%d in cooldown — waiting %.0fs", idx + 1, wait_sec)
+        time.sleep(wait_sec)
+    # Enforce minimum interval between calls
     last = _groq_last_call.get(idx, 0.0)
     gap  = time.monotonic() - last
     if gap < _GROQ_MIN_IV:
@@ -207,7 +216,7 @@ def _call_groq(system: str, user: str) -> str | None:
         idx = _groq_idx
         try:
             _groq_wait(idx)
-            client = Groq(api_key=_groq_keys[idx])
+            client = Groq(api_key=_groq_keys[idx], max_retries=1)
             resp   = client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=[
@@ -221,13 +230,33 @@ def _call_groq(system: str, user: str) -> str | None:
         except Exception as e:
             msg = str(e)
             if "429" in msg or "rate_limit" in msg.lower() or "quota" in msg.lower():
-                remaining = len(_groq_keys) - len(_groq_exhausted) - 1
-                log.warning("Groq key #%d exhausted. %d key(s) remaining.", idx + 1, remaining)
-                _groq_exhausted.add(idx)
+                # Distinguish per-minute (recoverable) from daily quota (permanent)
+                is_daily = any(w in msg.lower() for w in ("per_day", "daily", "day_limit"))
+                if is_daily:
+                    remaining = len(_groq_keys) - len(_groq_exhausted) - 1
+                    log.warning("Groq key #%d daily quota exhausted. %d key(s) remaining.",
+                                idx + 1, remaining)
+                    _groq_exhausted.add(idx)
+                else:
+                    # Per-minute/token rate limit — put key in 65s cooldown, don't kill it
+                    log.warning("Groq key #%d rate-limited (RPM/TPM) — 65s cooldown", idx + 1)
+                    _groq_cooldown[idx] = time.monotonic() + 65
                 _groq_idx = (_groq_idx + 1) % len(_groq_keys)
                 continue
             log.error("Groq call failed: %s", e)
             return None
+
+    # All keys either exhausted or in cooldown — check if any cooldown keys can be retried
+    active_cooldowns = [i for i in range(len(_groq_keys))
+                        if i not in _groq_exhausted and i in _groq_cooldown]
+    if active_cooldowns:
+        # Wait for the soonest cooldown to expire and try once more
+        soonest = min(_groq_cooldown[i] for i in active_cooldowns)
+        wait_sec = max(0.0, soonest - time.monotonic())
+        if wait_sec <= 120:
+            log.info("All Groq keys in cooldown — waiting %.0fs for next available key", wait_sec)
+            time.sleep(wait_sec + 1)
+            return _call_groq(system, user)   # one recursive retry after cooldown clears
 
     log.error("All Groq key(s) exhausted.")
     return None
@@ -236,7 +265,7 @@ def _call_groq(system: str, user: str) -> str | None:
 # ── Gemini (optional fallback) ────────────────────────────────────────────────
 
 GEMINI_MODEL  = os.getenv("LLM_MODEL", "gemini-2.0-flash-lite")
-GEMINI_RPM    = int(os.getenv("GEMINI_RPM", "25"))
+GEMINI_RPM    = int(os.getenv("GEMINI_RPM", "15"))
 _GEM_MIN_IV   = 60.0 / GEMINI_RPM
 
 _gem_keys:       list[str]        = []
@@ -244,6 +273,7 @@ _gem_idx:        int              = 0
 _gem_exhausted:  set[int]         = set()
 _gem_clients:    dict             = {}
 _gem_last_call:  dict[int, float] = {}
+_gem_cooldown:   dict[int, float] = {}
 
 
 def _load_gemini_keys() -> list[str]:
@@ -256,6 +286,12 @@ def _load_gemini_keys() -> list[str]:
 
 
 def _gem_wait(idx: int) -> None:
+    cooldown_until = _gem_cooldown.get(idx, 0.0)
+    now = time.monotonic()
+    if now < cooldown_until:
+        wait_sec = cooldown_until - now
+        log.info("Gemini key #%d in cooldown — waiting %.0fs", idx + 1, wait_sec)
+        time.sleep(wait_sec)
     last = _gem_last_call.get(idx, 0.0)
     gap  = time.monotonic() - last
     if gap < _GEM_MIN_IV:
@@ -270,7 +306,7 @@ def _call_gemini(prompt: str) -> str | None:
     if not _gem_keys:
         _gem_keys = _load_gemini_keys()
     if not _gem_keys:
-        return None   # no Gemini keys configured — silent skip
+        return None
 
     try:
         from google import genai
@@ -295,9 +331,9 @@ def _call_gemini(prompt: str) -> str | None:
         except Exception as e:
             msg = str(e)
             if "RESOURCE_EXHAUSTED" in msg or "429" in msg or "quota" in msg.lower():
-                remaining = len(_gem_keys) - len(_gem_exhausted) - 1
-                log.warning("Gemini key #%d exhausted. %d key(s) remaining.", idx + 1, remaining)
-                _gem_exhausted.add(idx)
+                # Free Gemini keys often share IP-level quota — put in cooldown, don't kill
+                log.warning("Gemini key #%d rate-limited — 65s cooldown", idx + 1)
+                _gem_cooldown[idx] = time.monotonic() + 65
                 _gem_idx = (_gem_idx + 1) % len(_gem_keys)
                 continue
             elif "API_KEY" in msg or "401" in msg:
@@ -307,6 +343,17 @@ def _call_gemini(prompt: str) -> str | None:
                 continue
             log.error("Gemini call failed: %s", e)
             return None
+
+    # All keys in cooldown — wait for soonest
+    active_cooldowns = [i for i in range(len(_gem_keys))
+                        if i not in _gem_exhausted and i in _gem_cooldown]
+    if active_cooldowns:
+        soonest = min(_gem_cooldown[i] for i in active_cooldowns)
+        wait_sec = max(0.0, soonest - time.monotonic())
+        if wait_sec <= 120:
+            log.info("All Gemini keys in cooldown — waiting %.0fs", wait_sec)
+            time.sleep(wait_sec + 1)
+            return _call_gemini(prompt)
 
     log.warning("All Gemini key(s) exhausted.")
     return None
@@ -330,15 +377,17 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
         is_listing = p.get("is_listing", False)
         hint = "LISTING PAGE — extract ALL individual card products mentioned." \
                if is_listing else "DETAIL PAGE — extract the single card described."
-        # Listing pages show 20+ cards; detail pages need room for all benefit sections.
-        window = 16000 if is_listing else 12000
+        # Listing: trim to 8K to stay within Groq free-tier TPM (~6K tokens/min).
+        # Detail: Jina strips nav/header/footer so full content is just 3-6K chars —
+        #         send it all, no truncation, so we never miss fees/rewards/perks.
+        content = p["markdown"] if not is_listing else p["markdown"][:8000]
         parts.append(
             f"--- DOCUMENT {i} ---\n"
             f"SOURCE_URL: {p['source_url']}\n"
             f"ISSUER_ID_HINT: {p.get('issuer_id') or ''}\n"
             f"ISSUER_NAME_HINT: {p.get('issuer_name') or ''}\n"
             f"PAGE_TYPE: {hint}\n\n"
-            f"{p['markdown'][:window]}\n"
+            f"{content}\n"
             f"--- END DOCUMENT {i} ---"
         )
     user_content = "\n\n".join(parts)

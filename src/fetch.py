@@ -89,7 +89,16 @@ def _try_jina(url: str) -> Optional[FetchResult]:
     try:
         r = requests.get(
             jina_url,
-            headers={"User-Agent": UA, "Accept": "text/markdown,text/plain,*/*"},
+            headers={
+                "User-Agent": UA,
+                "Accept": "text/markdown,text/plain,*/*",
+                # Strip nav/header/footer so card content isn't buried under 8K+ of nav menus.
+                # Critical for HDFC bank.in and other SPA banks that render huge nav dropdowns.
+                "X-Remove-Selector": "nav, header, footer, .mega-menu, .nav-menu, .navigation",
+                # Append a compact links section to the markdown — improves link harvest
+                # on sites whose card links are spread across JS-rendered components.
+                "X-With-Links-Summary": "true",
+            },
             timeout=TIMEOUT,
         )
         elapsed = time.monotonic() - t0
