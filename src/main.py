@@ -220,6 +220,8 @@ def _is_valid_card_name(name: str) -> bool:
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
+_LOWERCASE_ID_RE = re.compile(r'^[a-z0-9_]+$')
+
 def purge_invalid_cards() -> None:
     """Delete DDB records whose card_name would fail validation (garbage from bad extractions)."""
     all_cards = store.scan_all_cards()
@@ -227,7 +229,14 @@ def purge_invalid_cards() -> None:
         return
     deleted = 0
     for c in all_cards:
-        name = (c.get("card_name") or "").strip()
+        name  = (c.get("card_name") or "").strip()
+        iid   = (c.get("issuer_id") or "").strip()
+        # LLM extractions sometimes write uppercase/malformed issuer_id — purge them
+        if iid and not _LOWERCASE_ID_RE.match(iid):
+            store.delete_card(c["card_id"])
+            log.info("purged bad issuer_id record: %s  (issuer_id=%r name=%r)", c["card_id"], iid, name)
+            deleted += 1
+            continue
         if not _is_valid_card_name(name):
             store.delete_card(c["card_id"])
             log.info("purged garbage record: %s  (name=%r)", c["card_id"], name)
