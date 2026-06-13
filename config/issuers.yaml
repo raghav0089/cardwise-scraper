@@ -27,7 +27,7 @@ issuers:
     list_urls:
       - https://www.icicibank.com/personal-banking/cards/credit-card
       - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/debit-card
+      # Note: /consumer-cards/debit-card returns 404; debit card links harvested via credit card list
     detail_link_pattern: "/credit-card/|/debit-card/"
 
   - id: axis
@@ -59,7 +59,7 @@ issuers:
     type: bank
     list_urls:
       - https://www.idfcfirstbank.com/credit-card
-      - https://www.idfcfirstbank.com/debit-card
+      # Note: /debit-card returns 404; IDFC FIRST focuses on credit cards
 
   - id: yes
     name: YES Bank

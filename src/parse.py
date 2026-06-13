@@ -89,6 +89,12 @@ def _clean_text(text: str) -> str:
 
 _GENERIC_PREFIX_RE = re.compile(
     r"^(?:apply\s+for|get|best|find|compare|about|explore|discover|learn)\s+", re.I)
+# Lowercase article "the" followed by a non-specific adjective — signals a marketing slogan
+# e.g., "the Luxury Credit Card", "the Best Airline Credit Card"
+_MARKETING_ARTICLE_RE = re.compile(
+    r"^the\s+(?:best|luxury|premium|ultimate|perfect|right|ideal|only|most|top|first|new)\s",
+    re.I,
+)
 
 def _clean_card_name(raw: str) -> str:
     """Turn a noisy Jina/SEO title into a clean card product name."""
@@ -124,6 +130,10 @@ def _clean_card_name(raw: str) -> str:
         m = re.match(r'^(.{10,60}(?:credit|debit|prepaid|forex|card))\s*[-–].+$', val, re.I)
         if m and len(m.group(1)) < len(val) - 5:
             val = m.group(1).strip()
+    # If the remaining name starts with a marketing article ("the Luxury/Best/..."), signal
+    # rejection by returning empty string — the caller falls back to the next heading or URL slug.
+    if _MARKETING_ARTICLE_RE.match(val):
+        return ""
     return val.strip()
 
 
@@ -180,7 +190,12 @@ _GENERIC_NAME_RE = re.compile(
     r"more|see|view|contact|news|media|press|career|privacy|terms|site|"
     r"eligib|calculat|offers?\s+on|offers\s*$|reward\s+program|reward\s+point|"
     r"interest\s+rate|annual\s+fee|joining\s+fee|customer\s+care|"
-    r"frequently\s+asked|important\s+information)\b",
+    r"frequently\s+asked|important\s+information|"
+    # Marketing slogans used as page headings by HDFC and others ("the Luxury Credit Card",
+    # "the Best Airline Credit Card", "Enjoy Cashback with Spends on...")
+    r"enjoy\s+|save\s+(?:more|big|on)|earn\s+(?:more|reward|cashback)|"
+    r"the\s+(?:best|luxury|premium|ultimate|perfect|right|ideal|only|most)\s|"
+    r"(?:india[''']?s|your)\s+(?:best|top|#1)|unlock\s+|experience\s+the)\b",
     re.I,
 )
 
@@ -275,14 +290,17 @@ _SEG_RE = {
 # Fees
 # ─────────────────────────────────────────────────────────────
 
-_INR = r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)"
+_INR = r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)(?!\s*[xX%])"
 # Extended pattern that also captures lakh/crore suffix (group 2) for spend thresholds
 _INR_LAKH = r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(lakh|lac|crore|cr\b)?"
+# Fee amounts require ₹/rs/inr prefix — prevents reward multiplier numbers (4X, 2 Air Miles)
+# being captured as fees when the actual fee is "Nil" followed by reward descriptions.
+_INR_FEE = r"(?:₹|rs\.?\s*|inr\s*)([\d,]+(?:\.\d+)?)(?!\s*[xX%])"
 _FEE_PATS = [
-    # Negative lookahead (?!\s+reversal) prevents matching "Joining fee reversal on ₹X spend"
-    ("joining_fee_inr",       re.compile(r"join(?:ing)?\s*(?:or\s+)?(?:renewal\s+)?(?:membership\s+)?fee(?!\s+reversal)[^₹\d\n]{0,50}" + _INR, re.I)),
-    ("annual_fee_inr",        re.compile(r"annual\s*(?:fee|membership)(?!\s+(?:reversal|waiver|waived?))[^₹\d\n]{0,40}" + _INR, re.I)),
-    ("renewal_fee_inr",       re.compile(r"renewal\s*(?:membership\s+)?fee(?!\s+reversal)[^₹\d\n]{0,50}" + _INR, re.I)),
+    # Negative lookaheads prevent "fee reversal/waiver" phrasing from matching the actual fee field
+    ("joining_fee_inr",       re.compile(r"join(?:ing)?\s*(?:or\s+)?(?:renewal\s+)?(?:membership\s+)?fee(?!\s+(?:reversal|waiver|waived?))[^₹\d\n]{0,30}" + _INR_FEE, re.I)),
+    ("annual_fee_inr",        re.compile(r"annual\s*(?:fee|membership)(?!\s+(?:reversal|waiver|waived?))[^₹\d\n]{0,30}" + _INR_FEE, re.I)),
+    ("renewal_fee_inr",       re.compile(r"renewal\s*(?:membership\s+)?fee(?!\s+(?:reversal|waiver|waived?))[^₹\d\n]{0,30}" + _INR_FEE, re.I)),
     # fee_waiver uses _INR_LAKH (2 groups) to handle "1 Lakh" amounts; "fee reversal" = fee waiver
     ("fee_waiver_spend_inr",  re.compile(
         r"(?:fee\s+waiver|fee\s+waived?|waived?\s+(?:on|by)\s+(?:annual\s+|spending\s+)?spend|"
