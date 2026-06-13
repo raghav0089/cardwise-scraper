@@ -475,7 +475,7 @@ issuers:
     type: bank
     list_urls:
       - https://www.cityunionbank.com/cub-credit-cards-for-individuals
-      - https://www.cityunionbank.com/web-page/personal-cards
+      - https://www.cityunionbank.com/creditcard
 
   - id: dcb_bank
     name: DCB Bank
