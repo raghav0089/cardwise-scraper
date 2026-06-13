@@ -1,7 +1,7 @@
 """Orchestrator — invoked by GitHub Actions once a day.
 
-Set TEST_URLS=1 to run against a hardcoded small list (bypasses issuer crawl).
-Set TEST_RUN=N to take first N URLs from the normal issuer list.
+Set TEST_URLS=1 to run full discovery for _SMOKE_ISSUERS only (fast validation).
+Set TEST_RUN=N to cap total URLs processed from the normal full issuer list.
 """
 from __future__ import annotations
 import os, json, logging, time, sys, re
@@ -24,21 +24,9 @@ TEST_URLS     = os.getenv("TEST_URLS", "0") == "1"
 MAX_CARDS     = int(os.getenv("MAX_CARDS", "0"))   # 0 = no limit
 FORCE_REFRESH = os.getenv("FORCE_REFRESH", "0") == "1"
 
-# Hardcoded smoke-test URLs — mix of listing pages and individual card detail pages
-_SMOKE_TEST_URLS = [
-    # Listing pages — verify multi-card extraction
-    {"url": "https://www.hdfc.bank.in/credit-cards",                             "issuer_id": "hdfc",     "issuer_name": "HDFC Bank",  "is_discovery": False, "is_listing": True},
-    {"url": "https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card", "issuer_id": "icici", "issuer_name": "ICICI Bank", "is_discovery": False, "is_listing": True},
-    {"url": "https://www.sbicard.com/en/personal/credit-cards.page",             "issuer_id": "sbi_card", "issuer_name": "SBI Card",   "is_discovery": False, "is_listing": True},
-    {"url": "https://www.axis.bank.in/cards/credit-card",                        "issuer_id": "axis",     "issuer_name": "Axis Bank",  "is_discovery": False, "is_listing": True},
-    # Detail pages — verify single-card full extraction
-    {"url": "https://www.hdfc.bank.in/credit-cards/tata-neu-infinity-hdfc-bank-credit-card", "issuer_id": "hdfc", "issuer_name": "HDFC Bank", "is_discovery": False},
-    {"url": "https://www.hdfc.bank.in/credit-cards/millennia-credit-card",       "issuer_id": "hdfc",    "issuer_name": "HDFC Bank",  "is_discovery": False},
-    {"url": "https://www.axis.bank.in/cards/credit-card/ace-credit-card",        "issuer_id": "axis",    "issuer_name": "Axis Bank",  "is_discovery": False},
-    {"url": "https://www.sbicard.com/en/personal/credit-cards/travel/sbi-card-elite.page", "issuer_id": "sbi_card", "issuer_name": "SBI Card", "is_discovery": False},
-    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card", "issuer_id": "hdfc", "issuer_name": "HDFC Bank", "is_discovery": False},
-    {"url": "https://www.getonecard.app/",                                                            "issuer_id": "onecard", "issuer_name": "OneCard",    "is_discovery": False},
-]
+# Issuers to scrape when TEST_URLS=1 — covers all card categories and
+# exercises the full listing→harvest→extract pipeline, not just detail pages.
+_SMOKE_ISSUERS = {"hdfc", "axis", "sbi_card", "icici", "kotak", "indusind"}
 
 # ── URL filters ───────────────────────────────────────────────────────────────
 
@@ -94,8 +82,17 @@ def _should_fetch(url: str, is_discovery: bool = False) -> bool:
 
 def gather_urls() -> list[dict]:
     if TEST_URLS:
-        log.info("TEST_URLS mode: using %d hardcoded smoke-test URLs", len(_SMOKE_TEST_URLS))
-        return _SMOKE_TEST_URLS
+        log.info("TEST_URLS mode: running full discovery for %s", sorted(_SMOKE_ISSUERS))
+        urls = []
+        for r in collect_detail_urls(issuer_ids=_SMOKE_ISSUERS):
+            r["is_discovery"] = False
+            urls.append(r)
+        seen, uniq = set(), []
+        for r in urls:
+            if r["url"] not in seen:
+                seen.add(r["url"]); uniq.append(r)
+        log.info("smoke discovery: %d URLs to process", len(uniq))
+        return uniq
 
     mode = os.getenv("RUN_MODE", "all")
     if mode == "single":

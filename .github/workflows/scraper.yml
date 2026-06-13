@@ -6,19 +6,19 @@ on:
   workflow_dispatch:
     inputs:
       test_urls:
-        description: "Smoke test (10 hardcoded URLs only)"
+        description: "Smoke test — full discovery for HDFC, Axis, SBI Card, ICICI, Kotak, IndusInd only (~150 URLs)"
         type: boolean
         default: false
       test_run:
-        description: "Number of issuer URLs to process (0 = full run)"
+        description: "Cap total URLs processed (0 = no limit, e.g. 100 = first 100 across all issuers)"
         type: number
         default: 0
       max_cards:
-        description: "Stop after extracting this many cards (0 = no limit)"
+        description: "Stop after extracting N cards (0 = no limit)"
         type: number
         default: 0
       force_refresh:
-        description: "Re-extract all pages even if content is unchanged (clears SHA cache)"
+        description: "Bypass SHA cache and re-extract all pages (also purges invalid DDB records)"
         type: boolean
         default: false
 

@@ -17,14 +17,19 @@ def _same_site(a: str, b: str) -> bool:
            urlparse(b).netloc.split(":")[0].lstrip("www.")
 
 
-def collect_detail_urls() -> list[dict]:
+def collect_detail_urls(issuer_ids: set[str] | None = None) -> list[dict]:
     """Fetch each issuer's listing pages, harvest detail links, return all URLs.
 
     Each row has: url, issuer_id, issuer_name, issuer_type.
     Listing pages also carry prefetched_html so the main loop skips re-fetching.
+    Pass issuer_ids to restrict to a subset (used by smoke-test mode).
     """
     issuers = CFG["issuers"]
-    log.info("URL-gather phase: %d issuers configured", len(issuers))
+    if issuer_ids:
+        issuers = [i for i in issuers if i["id"] in issuer_ids]
+    log.info("URL-gather phase: %d issuers%s",
+             len(issuers),
+             f" (filtered: {sorted(issuer_ids)})" if issuer_ids else "")
 
     out: list[dict] = []
     for issuer_idx, issuer in enumerate(issuers, 1):
