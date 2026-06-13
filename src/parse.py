@@ -130,6 +130,18 @@ def _clean_card_name(raw: str) -> str:
         m = re.match(r'^(.{10,60}(?:credit|debit|prepaid|forex|card))\s*[-–].+$', val, re.I)
         if m and len(m.group(1)) < len(val) - 5:
             val = m.group(1).strip()
+    # Strip trailing description suffixes that are NOT part of the product name
+    val = re.sub(
+        r'\s+(?:–|-|&|and\s+)?\s*(?:enjoy|get|earn|save)\s+[^|]+$', '', val, flags=re.I).strip()
+    val = re.sub(
+        r'\s+(?:rewards?\s+(?:and|&)\s+benefits?|benefits?\s+(?:and|&)\s+(?:rewards?|features?)|'
+        r'features?\s+(?:and|&)\s+benefits?|offers?\s+(?:and|&)\s+benefits?)\s*$',
+        '', val, flags=re.I).strip()
+    # Strip "in the [Industry/Market/Country]" SEO tail
+    val = re.sub(r'\s+in\s+(?:the\s+)?(?:industry|market|country|world|india)\s*$', '', val, flags=re.I).strip()
+    # Reject slug-like names (hyphens, no spaces) that Jina sometimes produces from link text
+    if re.match(r'^[a-z0-9]+(-[a-z0-9]+)+$', val):
+        return ""
     # If the remaining name starts with a marketing article ("the Luxury/Best/..."), signal
     # rejection by returning empty string — the caller falls back to the next heading or URL slug.
     if _MARKETING_ARTICLE_RE.match(val):
@@ -191,9 +203,13 @@ _GENERIC_NAME_RE = re.compile(
     r"eligib|calculat|offers?\s+on|offers\s*$|reward\s+program|reward\s+point|"
     r"interest\s+rate|annual\s+fee|joining\s+fee|customer\s+care|"
     r"frequently\s+asked|important\s+information|"
+    # Generic section headings, not card product names
+    r"card\s+benefits?\b|card\s+features?\b|benefits?\s+(?:and|&)\s+features?\b|"
+    r"features?\s+(?:and|&)\s+benefits?\b|"
     # Marketing slogans used as page headings by HDFC and others ("the Luxury Credit Card",
     # "the Best Airline Credit Card", "Enjoy Cashback with Spends on...")
     r"enjoy\s+|save\s+(?:more|big|on)|earn\s+(?:more|reward|cashback)|"
+    r"maximize?|maximise\s+|"
     r"the\s+(?:best|luxury|premium|ultimate|perfect|right|ideal|only|most)\s|"
     r"(?:india[''']?s|your)\s+(?:best|top|#1)|unlock\s+|experience\s+the)\b",
     re.I,
@@ -668,8 +684,12 @@ def _parse_one(md: str, base: dict) -> Optional[dict]:
 
     n_page = _name(md)
     n_url  = _name_from_url(src_url) if src_url else None
-    # Prefer page name when it contains "card"; fall back to URL slug otherwise
-    if n_page and re.search(r'\bcard\b', n_page, re.I):
+    # Prefer page name when it explicitly identifies card type (credit/debit).
+    # If the URL says credit-card but the page name only says "card" (e.g. "Entertainment Card"),
+    # the URL slug is usually more accurate (e.g. "Platinum Times Credit Card").
+    url_has_type = bool(re.search(r"credit.card|debit.card", src_url, re.I))
+    page_has_type = bool(re.search(r"credit\s+card|debit\s+card|prepaid|forex\s+card", n_page or "", re.I))
+    if n_page and (page_has_type or not url_has_type) and re.search(r'\bcard\b', n_page, re.I):
         card["card_name"] = n_page
     elif n_url:
         card["card_name"] = n_url
