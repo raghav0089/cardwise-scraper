@@ -52,7 +52,11 @@ _SKIP_SEG_RE = re.compile(
     r"customer-care|negative-balance|do-not-call|credit-builder|"
     r"credit-card-service|different-type|top-\d|lounge-access|"
     r"zero-forex|best-lifetime|best-international|best-secured|"
-    r"travel-credit-card|loan-on|balance-on",
+    r"travel-credit-card|loan-on|balance-on|"
+    r"report-block|lost-or-stolen|block-lost|stolen-card|"
+    r"upgrade-your|manage-your|know-your-card|"
+    r"how-to-apply|credit-card-tips|credit-card-guide|"
+    r"credit-score|cardmember-agreement",
     re.IGNORECASE,
 )
 _ALLOWED_DISCOVERY_DOMAINS = frozenset({
@@ -183,14 +187,17 @@ _BAD_NAME_RE = re.compile(
     r'^(page[\s-]?not[\s-]?found|404\b|have\s+you\b|we\s+(are|re|were)\b|'
     r'existing\s+card|additional\s+benefit|savings?\s+calculat|'
     r'new\s+feature|about\s+|faq\b|important[\s:]+|note[\s:]+|'
-    r'introducing\b|happy\s+to|pleased\s+to)',
+    r'introducing\b|happy\s+to|pleased\s+to|'
+    r'report\s*(?:&|and)?\s*block|lost\s+or\s+stolen|block\s+(?:lost|stolen)|'
+    r'how\s+to|manage\s+your|upgrade\s+your|apply\s+for\s+(?:a\s+)?(?:hdfc|sbi|icici|axis|kotak))',
     re.I,
 )
 
 # These words anywhere in the name mean it's a page section, not a product.
 _REJECT_SUBSTR_RE = re.compile(
     r'\b(calculator|eligibility\s+check|comparison|activate|activation|'
-    r'apply\s+now|know\s+more|click\s+here)\b',
+    r'apply\s+now|know\s+more|click\s+here|apply\s+for\b|'
+    r'report\s+(?:&|and)?\s*block|lost\s+or\s+stolen|quickly\b)\b',
     re.I,
 )
 
