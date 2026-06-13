@@ -19,9 +19,10 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("main")
 OUT = Path("out"); OUT.mkdir(exist_ok=True)
 
-TEST_RUN  = int(os.getenv("TEST_RUN", "0"))
-TEST_URLS = os.getenv("TEST_URLS", "0") == "1"
-MAX_CARDS = int(os.getenv("MAX_CARDS", "0"))   # 0 = no limit
+TEST_RUN      = int(os.getenv("TEST_RUN", "0"))
+TEST_URLS     = os.getenv("TEST_URLS", "0") == "1"
+MAX_CARDS     = int(os.getenv("MAX_CARDS", "0"))   # 0 = no limit
+FORCE_REFRESH = os.getenv("FORCE_REFRESH", "0") == "1"
 
 # Hardcoded smoke-test URLs — mix of listing pages and individual card detail pages
 _SMOKE_TEST_URLS = [
@@ -150,8 +151,16 @@ def fetch_page(row: dict) -> dict | None:
         log.debug("skip near-empty page: %s", url)
         return None
 
+    # Detect 404 / error pages served with HTTP 200 (common on bank sites)
+    snippet = text[:400].lower()
+    if any(p in snippet for p in ("page not found", "404 error", "error 404",
+                                  "page doesn't exist", "page does not exist",
+                                  "we couldn't find", "no page found")):
+        log.info("404 content detected, skip: %s", url)
+        return None
+
     sha = sha256(text)
-    if store.source_unchanged(url, sha):
+    if not FORCE_REFRESH and store.source_unchanged(url, sha):
         log.info("unchanged, skip: %s", url)
         return None
 
@@ -168,7 +177,61 @@ def fetch_page(row: dict) -> dict | None:
     }
 
 
-# ── Process one page ─────────────────────────────────────────────────────────
+# ── Card name validation ──────────────────────────────────────────────────────
+
+# The word "card" must appear in a valid product name.
+_CARD_KW_RE = re.compile(r'\bcard\b', re.I)
+# Reject names that are page-section headings, announcements, or questions.
+_BAD_NAME_RE = re.compile(
+    r'^(page[\s-]?not[\s-]?found|404\b|have\s+you\b|we\s+(are|re|were)\b|'
+    r'existing\s+card|additional\s+benefit|savings?\s+calculat|'
+    r'new\s+feature|about\s+|faq\b|important[\s:]+|note[\s:]+|'
+    r'introducing\b|happy\s+to|pleased\s+to)',
+    re.I,
+)
+
+# These words anywhere in the name mean it's a page section, not a product.
+_REJECT_SUBSTR_RE = re.compile(
+    r'\b(calculator|eligibility\s+check|comparison|activate|activation|'
+    r'apply\s+now|know\s+more|click\s+here)\b',
+    re.I,
+)
+
+def _is_valid_card_name(name: str) -> bool:
+    if not name:
+        return False
+    name = name.strip()
+    if len(name) > 70:        # SEO titles are always long
+        return False
+    if '?' in name:           # activation prompts, FAQ entries
+        return False
+    if _BAD_NAME_RE.match(name):
+        return False
+    if _REJECT_SUBSTR_RE.search(name):
+        return False
+    if not _CARD_KW_RE.search(name):
+        return False
+    return True
+
+
+# ── Cleanup ───────────────────────────────────────────────────────────────────
+
+def purge_invalid_cards() -> None:
+    """Delete DDB records whose card_name would fail validation (garbage from bad extractions)."""
+    all_cards = store.scan_all_cards()
+    if not all_cards:
+        return
+    deleted = 0
+    for c in all_cards:
+        name = (c.get("card_name") or "").strip()
+        if not _is_valid_card_name(name):
+            store.delete_card(c["card_id"])
+            log.info("purged garbage record: %s  (name=%r)", c["card_id"], name)
+            deleted += 1
+    log.info("purge done: %d invalid record(s) removed from DynamoDB", deleted)
+
+
+# ── Process one page ──────────────────────────────────────────────────────────
 
 def process_page(page: dict) -> list[dict]:
     """Extract card(s) from a fetched page via LLM and persist them."""
@@ -181,8 +244,9 @@ def process_page(page: dict) -> list[dict]:
 
     out = []
     for c in cards_raw:
-        if not c.get("card_name"):
-            log.debug("skipping card without card_name from %s", page["source_url"])
+        name = (c.get("card_name") or "").strip()
+        if not _is_valid_card_name(name):
+            log.debug("rejected non-card name %r from %s", name, page["source_url"])
             continue
         c["raw_text_sha256"] = page["sha"]
         c.setdefault("issuer_id",   page.get("issuer_id"))
@@ -204,6 +268,9 @@ def main() -> int:
     started = time.time()
     log.info("DynamoDB enabled=%s  (region=%s  cards=%s  sources=%s)",
              store._AWS_ENABLED, store.REGION, store._CARDS_NAME, store._SOURCES_NAME)
+    if FORCE_REFRESH:
+        log.info("FORCE_REFRESH=1 — purging invalid DDB records and bypassing SHA cache")
+        purge_invalid_cards()
     urls    = gather_urls()
     log.info("processing %d urls%s",
              len(urls),

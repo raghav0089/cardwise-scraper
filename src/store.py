@@ -126,6 +126,36 @@ def mark_source(url: str, *, sha: str, etag: str | None) -> None:
         log.warning("DDB mark_source failed %s: %s", url, e)
 
 
+def delete_card(card_id: str) -> None:
+    if not _AWS_ENABLED:
+        return
+    try:
+        cards, _ = _ddb()
+        cards.delete_item(Key={"card_id": card_id})
+    except Exception as e:
+        log.warning("DDB delete_card failed %s: %s", card_id, e)
+
+
+def scan_all_cards() -> list[dict]:
+    """Full table scan of cards_master. Used for cleanup only — never on the hot path."""
+    if not _AWS_ENABLED:
+        return []
+    try:
+        cards, _ = _ddb()
+        items: list[dict] = []
+        last_key = None
+        while True:
+            resp = cards.scan(**({} if not last_key else {"ExclusiveStartKey": last_key}))
+            items.extend(resp.get("Items", []))
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+        return items
+    except Exception as e:
+        log.warning("DDB scan failed: %s", e)
+        return []
+
+
 def source_unchanged(url: str, sha: str) -> bool:
     if not _AWS_ENABLED:
         return False   # no persistence → always re-scrape

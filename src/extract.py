@@ -20,100 +20,143 @@ VALIDATOR = Draft7Validator(SCHEMA)
 
 SYSTEM = """You extract Indian payment-card product details from web pages.
 
-You will receive one page wrapped in --- DOCUMENT --- block.
+You will receive one or more pages in --- DOCUMENT --- blocks.
 Return STRICT JSON: {"cards":[<card>, ...]} — a flat list.
 Each card must match the IndianCard schema.
 
-──────────────────────────────────────────────────────
-GENERAL
-──────────────────────────────────────────────────────
-- Skip pages not about a specific payment-card product (credit/debit/prepaid/forex/corporate).
-- One page may describe many cards — emit one record per distinct card product.
-- card_id = "<issuer_id>__<slug-of-card_name>" (lowercase, hyphens only).
-- card_name = short official product name only (e.g. "Regalia Credit Card"), NOT the full SEO title.
-- Always set "source_url" to the exact SOURCE_URL from the document block.
-- category must be one of: credit, debit, prepaid, forex, corporate, business, other.
-- Return ONLY the JSON object — no markdown fences, no preamble.
+══════════════════════════════════════════════════════
+CRITICAL RULES — read before extracting anything
+══════════════════════════════════════════════════════
+1. Only emit records for actual PAYMENT CARD PRODUCTS.
+   A card product has a proper name like "Millennia Credit Card", "ACE Credit Card",
+   "Regalia Gold Credit Card", "IndianOil HDFC Bank Credit Card", etc.
 
-──────────────────────────────────────────────────────
+2. NEVER emit records for any of the following — even if they appear in the markdown:
+   • Page sections / headings ("Additional Benefits", "Key Features", "Why Choose Us")
+   • Savings / rewards calculators ("Swiggy Credit Card Savings Calculator")
+   • Activation / onboarding prompts ("Have you activated your card?")
+   • Promotional announcements ("We are happy to introduce the new…")
+   • News about existing cardholders ("Existing cardholders will continue to enjoy…")
+   • Cross-sell or comparison sidebars
+   • FAQ entries, T&C references, eligibility calculators
+   • Error / not-found pages ("Page Not Found", 404 error)
+   • Navigation items, footer links, tab headers
+
+3. DETAIL PAGE (PAGE_TYPE says DETAIL PAGE):
+   • The page is dedicated to ONE specific card product.
+   • Emit EXACTLY ONE record — for the primary card this page is about.
+   • Look at the main heading (h1 / largest heading) to identify the card name.
+   • Do NOT extract other cards mentioned in cross-sell sections, "You may also like",
+     comparison tables, or "upgrade to" suggestions anywhere on the page.
+
+4. LISTING PAGE (PAGE_TYPE says LISTING PAGE):
+   • The page lists several card products — emit one record per DISTINCT named product.
+   • Use only brief data visible on the listing (name, fees, key features shown).
+   • Do NOT invent details not present on the listing page.
+
+5. card_name = short official product name ONLY:
+   ✓  "Millennia Credit Card"
+   ✓  "ACE Credit Card"
+   ✓  "Regalia Gold Credit Card"
+   ✗  "ACE Credit Card: 5% Cashback on Bills, Lounge Access & Dining Offers | Axis Bank"
+   ✗  "5% Cashback On Amazon, Flipkart, Myntra, Swiggy, Zomato And More"
+   ✗  "Best Travel Credit Card 2024 | HDFC Bank"
+   ✗  "Have You Activated Your New SBI Credit Card?"
+
+6. card_id = "<issuer_id>__<slug-of-card_name>" (lowercase, hyphens only).
+   Use ISSUER_ID_HINT from the document block as issuer_id.
+
+7. Always set source_url to the exact SOURCE_URL from the document block.
+
+8. category must be one of: credit, debit, prepaid, forex, corporate, business, other.
+
+9. If a page is an error page (404 / "Page Not Found" / access denied), return {"cards": []}.
+
+10. Return ONLY the JSON object — no markdown fences, no preamble, no explanation.
+
+══════════════════════════════════════════════════════
 FEES  (null if not stated — do not guess)
-──────────────────────────────────────────────────────
-- All INR amounts as plain numbers (12500, not "₹12,500").
-- Set fees.gst_extra=true if "+GST" / "exclusive of GST" appears.
-- Capture: joining_fee_inr, annual_fee_inr, renewal_fee_inr, fee_waiver_spend_inr,
+══════════════════════════════════════════════════════
+All INR amounts as plain numbers (12500, not "₹12,500").
+Set fees.gst_extra=true if "+GST" / "exclusive of GST" appears.
+Capture: joining_fee_inr, annual_fee_inr, renewal_fee_inr, fee_waiver_spend_inr,
   addon_card_fee_inr, fx_markup_pct, cash_advance_fee_pct,
   finance_charge_pct_mo (monthly interest rate), fuel_surcharge_waiver (text).
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 REWARDS  (be THOROUGH — every category mentioned)
-──────────────────────────────────────────────────────
-- base_rate_pct: the default earn rate as % of spend.
-    Examples: "1 RP per ₹150, 1 RP = ₹0.25" → 0.25/150*100 = 0.1667
-              "5% cashback on all spends" → 5.0
-- For EVERY accelerated category add to rewards.accelerated:
+══════════════════════════════════════════════════════
+base_rate_pct: the default earn rate as % of spend.
+  Examples: "1 RP per ₹150, 1 RP = ₹0.25" → 0.25/150*100 = 0.1667
+            "5% cashback on all spends" → 5.0
+For EVERY accelerated category add to rewards.accelerated:
   {category, rate_pct, cap_inr (monthly/annual cap if stated), notes}
-  Categories to capture: dining, travel, grocery, fuel, online, international,
+  Categories: dining, travel, grocery, fuel, online, international,
   entertainment, UPI, utilities, insurance, movies, hotels, etc.
-- point_value_inr: INR value of 1 reward point / mile / coin.
-- currency: exact name (Reward Points / eDGE Miles / Cashback / NeuCoins / etc.)
-- redemption_modes: list of all ways to redeem (statement credit, flights, Amazon Pay, etc.)
-- expiry_months: how many months until points expire.
-- exclusions: spend categories that earn NO reward.
+point_value_inr: INR value of 1 reward point / mile / coin.
+currency: exact name (Reward Points / EDGE Miles / Cashback / NeuCoins / etc.)
+redemption_modes: all ways to redeem (statement credit, flights, Amazon Pay, etc.)
+expiry_months: months until points expire.
+exclusions: spend categories that earn NO reward.
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 MILESTONES  (every spend tier)
-──────────────────────────────────────────────────────
-- {spend_inr, reward (exact text), value_inr, period: monthly/quarterly/annual/anniversary}
-- Examples: fee waiver at ₹1L spend, 5000 bonus points at ₹2L quarterly, free flight at ₹4L annual.
+══════════════════════════════════════════════════════
+{spend_inr, reward (exact text), value_inr, period: monthly/quarterly/annual/anniversary}
+Examples: fee waiver at ₹1L spend, 5000 bonus points at ₹2L quarterly,
+          free flight at ₹4L annual, ₹500 voucher at ₹50K monthly.
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 WELCOME BENEFIT
-──────────────────────────────────────────────────────
-- welcome_benefit: everything given on joining/first-use — points, vouchers, subscriptions, gifts.
+══════════════════════════════════════════════════════
+welcome_benefit: everything given on joining/first-use — points, vouchers,
+  subscriptions, gifts. Be specific with quantities and conditions.
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 PARTNER OFFERS
-──────────────────────────────────────────────────────
-- For EVERY named brand offer: {partner, benefit}
-- benefit = full detail: "10% cashback up to ₹150/order, 3 orders/month, min ₹149"
-- Look for: Swiggy, Zomato, Amazon, Flipkart, BookMyShow, Myntra, Ola, Uber,
+══════════════════════════════════════════════════════
+For EVERY named brand offer: {partner, benefit}
+benefit = full detail: "10% cashback up to ₹150/order, 3 orders/month, min ₹149"
+Look for: Swiggy, Zomato, Amazon, Flipkart, BookMyShow, Myntra, Ola, Uber,
   IRCTC, MakeMyTrip, Cleartrip, Nykaa, BigBasket, Blinkit, PhonePe, Paytm,
   Tata Neu, CRED, Cult.fit, Lenskart, PVR, INOX, and any other named brand.
+partner_offers value must be the EXACT offer text, NOT raw markdown or navigation links.
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 LOUNGE ACCESS
-──────────────────────────────────────────────────────
-- domestic_visits_year: total per year (multiply per-quarter by 4).
-- international_visits_year: total per year.
-- guest_allowed: true/false.
-- program: Priority Pass / DreamFolks / LoungeKey / own network.
-- spend_unlock_inr: minimum spend per quarter/month to activate lounge benefit.
+══════════════════════════════════════════════════════
+domestic_visits_year: total per year (multiply per-quarter × 4, per-month × 12).
+international_visits_year: total per year.
+guest_allowed: true/false.
+program: Priority Pass / DreamFolks / LoungeKey / own network.
+spend_unlock_inr: minimum spend per quarter/month to activate lounge benefit.
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 INSURANCE
-──────────────────────────────────────────────────────
-- air_accident_inr, lost_card_inr, purchase_protection_inr, travel_inr.
+══════════════════════════════════════════════════════
+air_accident_inr, lost_card_inr, purchase_protection_inr, travel_inr.
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 PERKS  (catch-all — everything not captured above)
-──────────────────────────────────────────────────────
-Add {kind, value} for each. Kind examples:
-  golf, golf_simulator, movie, dining, hotel, concierge, spa,
+══════════════════════════════════════════════════════
+Add {kind, value} for each benefit not covered above.
+value must be a clean human-readable sentence — NOT raw markdown, URLs, or navigation text.
+Kind examples: golf, golf_simulator, movie, dining, hotel, concierge, spa,
   railway_lounge, subscription, roadside_assist, forex_perk,
   emi_conversion, contactless, virtual_card, annual_voucher.
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 ELIGIBILITY
-──────────────────────────────────────────────────────
-- min_age, max_age, min_income_inr_year, min_credit_score, salaried, self_employed.
+══════════════════════════════════════════════════════
+min_age, max_age, min_income_inr_year, min_credit_score, salaried, self_employed.
 
-──────────────────────────────────────────────────────
+══════════════════════════════════════════════════════
 OTHER
-──────────────────────────────────────────────────────
-- apply_url: direct application link if present.
-- card_material: metal / plastic / virtual (only if explicitly stated).
-- network: Visa / Mastercard / RuPay / Amex / Diners (if stated).
-- segment: entry / mid / premium / super-premium / invite-only / student / secured / nri."""
+══════════════════════════════════════════════════════
+apply_url: direct application link if present.
+card_material: metal / plastic / virtual (only if explicitly stated).
+network: Visa / Mastercard / RuPay / Amex / Diners (if stated).
+segment: entry / mid / premium / super-premium / invite-only / student / secured / nri."""
 
 
 # ── Groq (primary) ────────────────────────────────────────────────────────────
@@ -287,13 +330,15 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
         is_listing = p.get("is_listing", False)
         hint = "LISTING PAGE — extract ALL individual card products mentioned." \
                if is_listing else "DETAIL PAGE — extract the single card described."
+        # Listing pages show 20+ cards; give them more room.
+        window = 16000 if is_listing else 8000
         parts.append(
             f"--- DOCUMENT {i} ---\n"
             f"SOURCE_URL: {p['source_url']}\n"
             f"ISSUER_ID_HINT: {p.get('issuer_id') or ''}\n"
             f"ISSUER_NAME_HINT: {p.get('issuer_name') or ''}\n"
             f"PAGE_TYPE: {hint}\n\n"
-            f"{p['markdown'][:8000]}\n"
+            f"{p['markdown'][:window]}\n"
             f"--- END DOCUMENT {i} ---"
         )
     user_content = "\n\n".join(parts)

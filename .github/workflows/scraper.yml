@@ -17,6 +17,10 @@ on:
         description: "Stop after extracting this many cards (0 = no limit)"
         type: number
         default: 0
+      force_refresh:
+        description: "Re-extract all pages even if content is unchanged (clears SHA cache)"
+        type: boolean
+        default: false
 
 jobs:
   scrape:
@@ -47,6 +51,7 @@ jobs:
           TEST_URLS:        ${{ inputs.test_urls && '1' || '0' }}
           TEST_RUN:         ${{ inputs.test_run || '0' }}
           MAX_CARDS:        ${{ inputs.max_cards || '0' }}
+          FORCE_REFRESH:    ${{ inputs.force_refresh && '1' || '0' }}
         run: python -m src.main
 
       - name: Upload cards.json artifact
