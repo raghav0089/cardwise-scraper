@@ -137,6 +137,11 @@ def _clean_card_name(raw: str) -> str:
         r'\s+(?:rewards?\s+(?:and|&)\s+benefits?|benefits?\s+(?:and|&)\s+(?:rewards?|features?)|'
         r'features?\s+(?:and|&)\s+benefits?|offers?\s+(?:and|&)\s+benefits?)\s*$',
         '', val, flags=re.I).strip()
+    # Strip "With [adjective] Benefits/Rewards/Offers" marketing suffix
+    val = re.sub(
+        r'\s+with\s+(?:unlimited|exclusive|unmatched|extraordinary|great|premium|amazing)\s+'
+        r'(?:benefits?|offers?|rewards?|privileges?)\s*$',
+        '', val, flags=re.I).strip()
     # Strip "in the [Industry/Market/Country]" SEO tail
     val = re.sub(r'\s+in\s+(?:the\s+)?(?:industry|market|country|world|india)\s*$', '', val, flags=re.I).strip()
     # Reject slug-like names (hyphens, no spaces) that Jina sometimes produces from link text

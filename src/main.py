@@ -56,7 +56,10 @@ _SKIP_SEG_RE = re.compile(
     r"report-block|lost-or-stolen|block-lost|stolen-card|"
     r"upgrade-your|manage-your|know-your-card|"
     r"how-to-apply|credit-card-tips|credit-card-guide|"
-    r"credit-score|cardmember-agreement",
+    r"credit-score|cardmember-agreement|"
+    # Program/landing pages that are not individual card products
+    r"referral|pre-approved-credit|lifetime-free-credit|"
+    r"credit-card-against|best-credit-card",
     re.IGNORECASE,
 )
 _ALLOWED_DISCOVERY_DOMAINS = frozenset({
