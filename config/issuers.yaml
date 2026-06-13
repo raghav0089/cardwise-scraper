@@ -25,10 +25,10 @@ issuers:
     name: ICICI Bank
     type: bank
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/credit-card
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card
-      # Note: /consumer-cards/debit-card returns 404; debit card links harvested via credit card list
-    detail_link_pattern: "/credit-card/|/debit-card/"
+      - https://www.icici.bank.in/personal-banking/cards/credit-card
+      # Old icicibank.com listing page — co-brand links now on icici.bank.in (cross-site, blocked by _same_site)
+      # icici.bank.in is the new canonical domain for all ICICI card product pages
+    detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/[a-z]"
 
   - id: axis
     name: Axis Bank
@@ -332,8 +332,8 @@ issuers:
     type: cobrand
     list_urls:
       - https://www.amazon.in/amazonpay/icicibank/creditcard
-      - https://www.icicibank.com/personal-banking/cards/credit-card/amazon-pay-credit-card
-    detail_link_pattern: "/personal-banking/cards/credit-card/"
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/amazon-pay-credit-card
+    detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/"
 
   - id: myntra_kotak
     name: Myntra Kotak
@@ -622,41 +622,42 @@ issuers:
     name: HPCL ICICI Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/credit-card/hpcl-icici-bank-credit-card
-    detail_link_pattern: "/personal-banking/cards/credit-card/"
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/hpcl-super-saver
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/hpcl-coral-credit-card
+    detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/"
 
   - id: icici_makemytrip
     name: MakeMyTrip ICICI Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/credit-card/makemytrip-icici-bank-credit-card
-      - https://www.icicibank.com/personal-banking/cards/credit-card/mmt-black-icici-bank-credit-card
-    detail_link_pattern: "/personal-banking/cards/credit-card/"
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/makemytrip/makemytrip-icici-credit-card
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/makemytrip/signature-credit-card
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/makemytrip/platinum-credit-card
+    detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/"
 
   - id: icici_irctc
     name: IRCTC ICICI Bank RuPay Credit Card
     type: cobrand
-    list_urls:
-      - https://www.icicibank.com/personal-banking/cards/credit-card/irctc-icici-bank-rupay-credit-card
-    detail_link_pattern: "/personal-banking/cards/credit-card/"
+    # Card appears discontinued — not found on icici.bank.in listing (2026-06-13)
+    list_urls: []
 
   - id: times_black_icici
     name: Times Black ICICI Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/credit-card/times-black-icici-bank-credit-card
-    detail_link_pattern: "/personal-banking/cards/credit-card/"
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/times-black-icici-credit-card
+    detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/"
 
   - id: icici_imobile_payback
     name: ICICI Bank Coral & Premium Cards
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/credit-card/coral-credit-card
-      - https://www.icicibank.com/personal-banking/cards/credit-card/rubyx-credit-card
-      - https://www.icicibank.com/personal-banking/cards/credit-card/sapphiro-credit-card
-      - https://www.icicibank.com/personal-banking/cards/credit-card/emeralde-credit-card
-      - https://www.icicibank.com/personal-banking/cards/credit-card/emeralde-private-metal-credit-card
-    detail_link_pattern: "/personal-banking/cards/credit-card/"
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/coral-credit-card
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/rubyx-credit-card
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/sapphiro-card
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/emeralde-credit-card
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/emeralde-private-metal-credit-card
+    detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/"
 
   # ---------- Additional Axis co-brands ----------
   - id: club_vistara_axis
