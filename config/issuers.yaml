@@ -313,6 +313,7 @@ issuers:
       - https://www.tataneu.com/tata-neu-card
       - https://www.hdfc.bank.in/credit-cards/tata-neu-infinity-hdfc-bank-credit-card
       - https://www.hdfc.bank.in/credit-cards/tata-neu-plus-hdfc-bank-credit-card
+    detail_link_pattern: "/credit-cards/[a-z]|/creditcard|/tata-neu-card"
 
   - id: flipkart_axis
     name: Flipkart Axis
@@ -320,6 +321,7 @@ issuers:
     list_urls:
       - https://www.axis.bank.in/cards/credit-card/flipkart-axisbank-credit-card
       - https://www.axis.bank.in/cards/credit-card/flipkart-axis-bank-super-elite-credit-card
+    detail_link_pattern: "axis\\.bank\\.in/cards/credit-card/"
 
   - id: amazon_pay_icici
     name: Amazon Pay ICICI
@@ -327,6 +329,7 @@ issuers:
     list_urls:
       - https://www.amazon.in/amazonpay/icicibank/creditcard
       - https://www.icicibank.com/personal-banking/cards/credit-card/amazon-pay-credit-card
+    detail_link_pattern: "/personal-banking/cards/credit-card/"
 
   - id: myntra_kotak
     name: Myntra Kotak
@@ -616,6 +619,7 @@ issuers:
     type: cobrand
     list_urls:
       - https://www.icicibank.com/personal-banking/cards/credit-card/hpcl-icici-bank-credit-card
+    detail_link_pattern: "/personal-banking/cards/credit-card/"
 
   - id: icici_makemytrip
     name: MakeMyTrip ICICI Bank Credit Card
@@ -623,18 +627,21 @@ issuers:
     list_urls:
       - https://www.icicibank.com/personal-banking/cards/credit-card/makemytrip-icici-bank-credit-card
       - https://www.icicibank.com/personal-banking/cards/credit-card/mmt-black-icici-bank-credit-card
+    detail_link_pattern: "/personal-banking/cards/credit-card/"
 
   - id: icici_irctc
     name: IRCTC ICICI Bank RuPay Credit Card
     type: cobrand
     list_urls:
       - https://www.icicibank.com/personal-banking/cards/credit-card/irctc-icici-bank-rupay-credit-card
+    detail_link_pattern: "/personal-banking/cards/credit-card/"
 
   - id: times_black_icici
     name: Times Black ICICI Bank Credit Card
     type: cobrand
     list_urls:
       - https://www.icicibank.com/personal-banking/cards/credit-card/times-black-icici-bank-credit-card
+    detail_link_pattern: "/personal-banking/cards/credit-card/"
 
   - id: icici_imobile_payback
     name: ICICI Bank Coral & Premium Cards
@@ -645,6 +652,7 @@ issuers:
       - https://www.icicibank.com/personal-banking/cards/credit-card/sapphiro-credit-card
       - https://www.icicibank.com/personal-banking/cards/credit-card/emeralde-credit-card
       - https://www.icicibank.com/personal-banking/cards/credit-card/emeralde-private-metal-credit-card
+    detail_link_pattern: "/personal-banking/cards/credit-card/"
 
   # ---------- Additional Axis co-brands ----------
   - id: club_vistara_axis
