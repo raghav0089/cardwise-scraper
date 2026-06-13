@@ -141,7 +141,7 @@ issuers:
     name: Karur Vysya Bank
     type: bank
     list_urls:
-      - https://www.kvb.bank.in/personal-banking/cards/credit-cards
+      - https://www.kvb.bank.in/personal/cards/index.html
 
   # ---------- PSU banks ----------
   - id: bob
