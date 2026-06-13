@@ -330,8 +330,8 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
         is_listing = p.get("is_listing", False)
         hint = "LISTING PAGE — extract ALL individual card products mentioned." \
                if is_listing else "DETAIL PAGE — extract the single card described."
-        # Listing pages show 20+ cards; give them more room.
-        window = 16000 if is_listing else 8000
+        # Listing pages show 20+ cards; detail pages need room for all benefit sections.
+        window = 16000 if is_listing else 12000
         parts.append(
             f"--- DOCUMENT {i} ---\n"
             f"SOURCE_URL: {p['source_url']}\n"

@@ -10,15 +10,21 @@ issuers:
     name: HDFC Bank
     type: bank
     list_urls:
+      # New site (hdfc.bank.in) — flat listing, all cards visible, no JS tabs
+      - https://www.hdfc.bank.in/credit-cards
+      - https://www.hdfc.bank.in/debit-cards
+      # Legacy site (hdfcbank.com) — kept as supplementary source
       - https://www.hdfcbank.com/personal/pay/cards/credit-cards
       - https://www.hdfcbank.com/personal/pay/cards/debit-cards
       - https://www.hdfcbank.com/personal/pay/cards/business-credit-card
-    detail_link_pattern: "/personal/pay/cards/.*-card"
+    # Matches detail pages on both domains
+    detail_link_pattern: "(/personal/pay/cards/.*-card|/credit-cards/[a-z0-9]|/debit-cards/[a-z0-9])"
 
   - id: icici
     name: ICICI Bank
     type: bank
     list_urls:
+      - https://www.icicibank.com/personal-banking/cards/credit-card
       - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card
       - https://www.icicibank.com/personal-banking/cards/consumer-cards/debit-card
     detail_link_pattern: "/credit-card/|/debit-card/"
@@ -27,23 +33,39 @@ issuers:
     name: Axis Bank
     type: bank
     list_urls:
-      - https://www.axisbank.com/retail/cards/credit-card
-      - https://www.axisbank.com/retail/cards/debit-card
-    detail_link_pattern: "/retail/cards/"
+      # New website (axis.bank.in) — category pages cover all card types
+      - https://www.axis.bank.in/cards/credit-card?category=Shop
+      - https://www.axis.bank.in/cards/credit-card?category=Travel
+      - https://www.axis.bank.in/cards/credit-card?category=Dine
+      - https://www.axis.bank.in/cards/credit-card?category=Fuel
+      - https://www.axis.bank.in/cards/credit-card?category=Miles
+      - https://www.axis.bank.in/cards/credit-card?category=Cashback
+      - https://www.axis.bank.in/cards/credit-card
+      - https://www.axis.bank.in/cards/debit-card
+    detail_link_pattern: "/cards/(credit|debit)-card/"
 
   - id: sbi_card
     name: SBI Card
     type: bank
     list_urls:
       - https://www.sbicard.com/en/personal/credit-cards.page
+      # Category listing pages to ensure all cards are discovered
+      - https://www.sbicard.com/en/personal/credit-cards/lifestyle.page
+      - https://www.sbicard.com/en/personal/credit-cards/rewards.page
+      - https://www.sbicard.com/en/personal/credit-cards/travel.page
+      - https://www.sbicard.com/en/personal/credit-cards/cashback.page
+      - https://www.sbicard.com/en/personal/credit-cards/fuel.page
+      - https://www.sbicard.com/en/personal/credit-cards/shopping.page
     detail_link_pattern: "/credit-cards/.*\\.page$"
 
   - id: kotak
     name: Kotak Mahindra Bank
     type: bank
     list_urls:
-      - https://www.kotak.com/en/personal-banking/cards/credit-cards.html
-      - https://www.kotak.com/en/personal-banking/cards/debit-cards.html
+      # New domain (kotak.bank.in)
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards.html
+      - https://www.kotak.bank.in/en/personal-banking/cards/debit-cards.html
+    detail_link_pattern: "/personal-banking/cards/credit-cards/|/personal-banking/cards/debit-cards/"
 
   - id: idfc_first
     name: IDFC FIRST Bank
@@ -66,8 +88,11 @@ issuers:
     name: IndusInd Bank
     type: bank
     list_urls:
-      - https://www.indusind.com/in/en/personal/cards/credit-card.html
-      - https://www.indusind.com/in/en/personal/cards/debit-card.html
+      # New domain (indusind.bank.in)
+      - https://www.indusind.bank.in/in/en/personal/cards/credit-card.html
+      - https://www.indusind.bank.in/in/en/personal/cards/debit-card.html
+      - https://www.indusind.bank.in/in/en/personal/cards.html
+    detail_link_pattern: "/personal/cards/credit-card/|/personal/cards/debit-card/"
 
   - id: rbl
     name: RBL Bank
@@ -81,7 +106,10 @@ issuers:
     name: Standard Chartered India
     type: bank
     list_urls:
-      - https://www.sc.com/in/credit-cards/
+      # New domain (sc.bank.in)
+      - https://www.sc.bank.in/credit-cards/
+      - https://www.sc.bank.in/debit-cards/
+    detail_link_pattern: "/credit-cards/[a-z]|/debit-cards/[a-z]"
 
   - id: hsbc
     name: HSBC India
@@ -139,10 +167,11 @@ issuers:
 
 
   - id: bajaj
-    name: Bajaj Finserv (BOBCARD)
+    name: Bajaj Finserv
     type: bank
     list_urls:
-      - https://www.bajajfinserv.in/webform/v1/emicard/login       # primary — bobfinancial.com is defunct
+      - https://www.bajajfinserv.in/credit-card
+      - https://www.bajajfinserv.in/credit-card-apply-online
     detail_link_pattern: "/credit-card"
 
   - id: pnb
@@ -295,38 +324,43 @@ issuers:
     name: Tata Neu (HDFC co-brand)
     type: cobrand
     list_urls:
+      - https://www.tataneu.com/creditcard/
       - https://www.tataneu.com/tata-neu-card
+      - https://www.hdfc.bank.in/credit-cards/tata-neu-infinity-hdfc-bank-credit-card
+      - https://www.hdfc.bank.in/credit-cards/tata-neu-plus-hdfc-bank-credit-card
 
   - id: flipkart_axis
     name: Flipkart Axis
     type: cobrand
     list_urls:
-      - https://www.axisbank.com/retail/cards/credit-card/flipkart-axis-bank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/flipkart-axis-bank-credit-card
 
   - id: amazon_pay_icici
     name: Amazon Pay ICICI
     type: cobrand
     list_urls:
       - https://www.amazon.in/amazonpay/icicibank/creditcard
+      - https://www.icicibank.com/personal-banking/cards/credit-card/amazon-pay-credit-card
       - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/amazon-pay-credit-card
 
   - id: myntra_kotak
     name: Myntra Kotak
     type: cobrand
     list_urls:
-      - https://www.kotak.com/en/personal-banking/cards/credit-cards/myntra-kotak-credit-card.html
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/myntra-kotak-credit-card.html
 
   - id: swiggy_hdfc
     name: Swiggy HDFC
     type: cobrand
     list_urls:
+      - https://www.hdfc.bank.in/credit-cards/swiggy-hdfc-bank-credit-card
       - https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card
 
   - id: airtel_axis
     name: Airtel Axis Bank
     type: cobrand
     list_urls:
-      - https://www.axisbank.com/retail/cards/credit-card/airtel-axis-bank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/airtel-axis-bank-credit-card
 
 
   - id: unity_sfb
@@ -341,14 +375,14 @@ issuers:
     name: IndianOil Axis Bank
     type: cobrand
     list_urls:
-      - https://www.axisbank.com/retail/cards/credit-card/indianoil-axis-bank-credit-card
-      - https://www.axisbank.com/retail/cards/credit-card/indianoil-premium-credit-card
+      - https://www.axis.bank.in/cards/credit-card/indianoil-axis-bank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/indianoil-premium-credit-card
 
   - id: swiggy_axis  # separate from Swiggy HDFC — different card, different issuer
     name: Swiggy Axis Bank
     type: cobrand
     list_urls:
-      - https://www.axisbank.com/retail/cards/credit-card/swiggy-axis-bank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/swiggy-axis-bank-credit-card
 
   - id: bpcl_sbi
     name: BPCL SBI Card
@@ -388,3 +422,325 @@ issuers:
     type: forex
     list_urls:
       - https://www.thomascook.in/forex/forex-card
+
+  # ---------- PSU banks (additional) ----------
+  - id: bank_of_india
+    name: Bank of India
+    type: bank
+    list_urls:
+      - https://bankofindia.bank.in/credit-card
+      - https://bankofindia.bank.in/debit-card
+
+  - id: bank_of_maharashtra
+    name: Bank of Maharashtra
+    type: bank
+    list_urls:
+      - https://bankofmaharashtra.bank.in/bom-credit-card
+      - https://bankofmaharashtra.bank.in/debit-cards
+
+  - id: central_bank
+    name: Central Bank of India
+    type: bank
+    list_urls:
+      - https://centralbank.bank.in/en/credit-cards
+      - https://centralbank.bank.in/en/debit-cards
+
+  - id: iob
+    name: Indian Overseas Bank
+    type: bank
+    list_urls:
+      - https://www.iob.bank.in/en/credit-card-offers
+      - https://www.iob.bank.in/en/debit-cards
+
+  - id: uco_bank
+    name: UCO Bank
+    type: bank
+    list_urls:
+      - https://www.uco.bank.in/credit-card1
+      - https://www.uco.bank.in/debit-card
+
+  - id: punjab_sind
+    name: Punjab & Sind Bank
+    type: bank
+    list_urls:
+      - https://punjabandsind.bank.in/content/credit-cards
+      - https://punjabandsind.bank.in/content/debit-cards
+
+  # ---------- Private banks (additional) ----------
+  - id: karnataka_bank
+    name: Karnataka Bank
+    type: bank
+    list_urls:
+      - https://www.karnatakabank.bank.in/personal/credit-cards
+      - https://www.karnatakabank.bank.in/personal/cards
+
+  - id: city_union_bank
+    name: City Union Bank
+    type: bank
+    list_urls:
+      - https://www.cityunionbank.com/cub-credit-cards-for-individuals
+      - https://www.cityunionbank.com/web-page/personal-cards
+
+  - id: dcb_bank
+    name: DCB Bank
+    type: bank
+    list_urls:
+      - https://www.dcb.bank.in/personal/cards
+
+  - id: dhanlaxmi_bank
+    name: Dhanlaxmi Bank
+    type: bank
+    list_urls:
+      - https://www.dhan.bank.in/credit-card/
+
+  - id: saraswat_bank
+    name: Saraswat Bank
+    type: bank
+    list_urls:
+      - https://www.saraswat.bank.in/navigation.aspx?id=Credit-Cards
+
+  - id: jk_bank
+    name: J&K Bank
+    type: bank
+    list_urls:
+      - https://jkb.bank.in/transactions/services/credit-cards
+
+  - id: csb_bank
+    name: CSB Bank
+    type: bank
+    list_urls:
+      - https://www.csb.bank.in/credit-card
+      - https://www.csb.bank.in/csb-bank-edge-credit-card
+
+  - id: dbs_india
+    name: DBS Bank India
+    type: bank
+    list_urls:
+      - https://www.dbs.bank.in/in/credit-cards/default.html
+      - https://www.dbs.bank.in/in/credit-cards/supercard.html
+
+  # ---------- Small Finance Banks (additional) ----------
+  - id: equitas_sfb
+    name: Equitas Small Finance Bank
+    type: bank
+    list_urls:
+      - https://equitas.bank.in/personal-banking/pay/credit-cards/
+
+  - id: suryoday_sfb
+    name: Suryoday Small Finance Bank
+    type: bank
+    list_urls:
+      - https://suryoday.bank.in/personal/cards/credit-cards/secured-credit-card/
+      - https://suryoday.bank.in/personal/cards/credit-cards/secured-ssfb-rupay-select/
+
+  - id: esaf_sfb
+    name: ESAF Small Finance Bank
+    type: bank
+    list_urls:
+      - https://www.esaf.bank.in/credit-card/
+
+  - id: jana_sfb
+    name: Jana Small Finance Bank
+    type: bank
+    list_urls:
+      - https://www.jana.bank.in/
+
+  - id: utkarsh_sfb
+    name: Utkarsh Small Finance Bank
+    type: bank
+    list_urls:
+      - https://www.utkarsh.bank.in/personal/cards/credit-card/wish-credit-card
+
+  # ---------- HDFC co-brand / variant detail pages ----------
+  # These are app-only or partner-hosted cards not always visible in the main listing
+  - id: hdfc_pixel
+    name: HDFC PIXEL Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/pixel-play-credit-card
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/pixel-go-credit-card
+
+  - id: indianoil_hdfc
+    name: IndianOil HDFC Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/indianoil-hdfc-bank-credit-card
+
+  - id: irctc_hdfc
+    name: IRCTC HDFC Bank RuPay Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/irctc-hdfc-bank-rupay-credit-card
+
+  - id: club_vistara_hdfc
+    name: Club Vistara HDFC Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/club-vistara-hdfc-bank-credit-card
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/club-vistara-hdfc-bank-signature-credit-card
+
+  - id: marriott_bonvoy_hdfc
+    name: Marriott Bonvoy HDFC Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/marriott-bonvoy-hdfc-bank-credit-card
+
+  - id: eazydiner_hdfc
+    name: EazyDiner HDFC Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/eazydiner-hdfc-bank-credit-card
+
+  - id: phonepe_hdfc
+    name: PhonePe HDFC Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.hdfc.bank.in/credit-cards/phonepe-hdfc-bank-ultimo-credit-card
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/phonepe-hdfc-bank-ultimo-credit-card
+      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/phonepe-hdfc-bank-uno-credit-card
+
+  # ---------- Additional SBI Card co-brands ----------
+  - id: yatra_sbi
+    name: Yatra SBI Card
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/travel/yatra-sbi-card.page
+
+  - id: apollo_sbi
+    name: Apollo SBI Card SELECT
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/apollo-sbi-card-select.html
+
+  - id: lifestyle_hc_sbi
+    name: Lifestyle Home Centre SBI Card
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/shopping/lifestyle-hc-sbi-card.page
+      - https://www.sbicard.com/en/personal/credit-cards/shopping/lifestyle-hc-sbi-card-select.page
+      - https://www.sbicard.com/en/personal/credit-cards/shopping/hc-sbi-card-prime.page
+
+  - id: club_vistara_sbi
+    name: Club Vistara SBI Card
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/travel/club-vistara-sbi-card.page
+      - https://www.sbicard.com/en/personal/credit-cards/travel/club-vistara-sbi-card-prime.page
+
+  - id: air_india_sbi
+    name: Air India SBI Card
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/travel/air-india-sbi-card.page
+      - https://www.sbicard.com/en/personal/credit-cards/travel/air-india-sbi-card-signature.page
+
+  - id: bpcl_sbi_octane
+    name: BPCL SBI Card OCTANE
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/bpcl-sbi-card-octane.html
+
+  - id: irctc_sbi_premier
+    name: IRCTC SBI Card Premier
+    type: cobrand
+    list_urls:
+      - https://www.sbicard.com/en/personal/credit-cards/travel/irctc-sbi-card-premier.page
+
+  # ---------- Additional ICICI co-brands ----------
+  - id: icici_hpcl
+    name: HPCL ICICI Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/hpcl-icici-bank-credit-card
+
+  - id: icici_makemytrip
+    name: MakeMyTrip ICICI Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/makemytrip-icici-bank-credit-card
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/mmt-black-icici-bank-credit-card
+
+  - id: icici_irctc
+    name: IRCTC ICICI Bank RuPay Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/irctc-icici-bank-rupay-credit-card
+
+  - id: times_black_icici
+    name: Times Black ICICI Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/times-black-icici-bank-credit-card
+
+  - id: icici_imobile_payback
+    name: ICICI Bank Coral & Premium Cards
+    type: cobrand
+    list_urls:
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/coral-credit-card
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/rubyx-credit-card
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/sapphiro-credit-card
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/emeralde-credit-card
+      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/emeralde-private-metal-credit-card
+
+  # ---------- Additional Axis co-brands ----------
+  - id: club_vistara_axis
+    name: Club Vistara Axis Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.axis.bank.in/cards/credit-card/club-vistara-axis-bank-credit-card
+
+  - id: samsung_axis
+    name: Samsung Axis Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.axis.bank.in/cards/credit-card/samsung-axis-bank-credit-card
+
+  # ---------- Additional IndusInd co-brands ----------
+  - id: club_vistara_indusind
+    name: Club Vistara IndusInd Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.indusind.bank.in/in/en/personal/cards/credit-card/club-vistara-indusind-bank-credit-card.html
+
+  - id: eazydiner_indusind
+    name: EazyDiner IndusInd Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.indusind.bank.in/in/en/personal/cards/credit-card/eazydiner-indusind-bank-credit-card.html
+
+  # ---------- Additional Kotak co-brands ----------
+  - id: indigo_kotak
+    name: IndiGo Kotak Bank Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/6e-rewards-xl-indigo-kotak-bank-credit-card.html
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-ka-zing-kotak-bank-rupay-credit-card.html
+
+  - id: pvr_kotak
+    name: PVR Kotak Credit Card
+    type: cobrand
+    list_urls:
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/pvr-kotak-credit-card.html
+
+  # ---------- BOBCARD premium variants ----------
+  - id: bobcard_premium
+    name: BOBCARD Premium Cards (Eterna / Tiitan / Swag)
+    type: cobrand
+    list_urls:
+      - https://www.bobcard.co.in/credit-card-types/eterna
+      - https://www.bobcard.co.in/credit-card-types/tiitan
+      - https://www.bobcard.co.in/credit-card-types/swag
+      - https://www.bobcard.co.in/credit-card-types/prime
+
+  # ---------- Other fintechs ----------
+  - id: stashfin
+    name: StashFin
+    type: neobank
+    list_urls:
+      - https://www.stashfin.com/
+
+  - id: paisabazaar_stepup
+    name: Paisabazaar StepUp Card (SBM Bank)
+    type: neobank
+    list_urls:
+      - https://www.paisabazaar.com/stepupcard/

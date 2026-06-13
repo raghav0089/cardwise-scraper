@@ -25,11 +25,25 @@ TIMEOUT = 30
 JINA_MIN_INTERVAL = 3.5   # ~17 req/min, safe under the 20/min free limit
 
 STRICT_PROXY_DOMAINS: frozenset[str] = frozenset({
+    # Major private / PSU banks (legacy domains)
     "hdfcbank.com", "icicibank.com", "idfcfirstbank.com", "yesbank.in",
-    "axisbank.com", "kotak.com", "sbi.co.in", "sbicard.com", "indusind.com",
-    "bandhanbank.com", "bandhan.bank.in", "southindianbank.com", "kvb.bank.in",
-    "rblbank.com", "canarabank.com", "cred.club", "jupiter.money",
-    "fi.money", "super.money", "amazon.in", "goniyo.com",
+    "axisbank.com", "sbi.co.in", "sbicard.com",
+    "bandhanbank.com", "southindianbank.com",
+    "federalbank.co.in", "idbibank.in", "unionbankofindia.co.in",
+    "bobcard.co.in",
+    # Fintech / neobanks
+    "cred.club", "jupiter.money", "fi.money", "super.money",
+    "amazon.in", "goniyo.com", "tataneu.com", "bajajfinserv.in",
+    # Indian banks registered under *.bank.in — covers Axis, HDFC, Kotak,
+    # IndusInd, Standard Chartered India, Yes, PNB, Canara, RBL, AU, Bandhan,
+    # BOI, BOM, Central Bank, IOB, UCO, PSB, Karnataka Bank, KVB, DCB, Dhan,
+    # Saraswat, JKB, CSB, DBS India, Equitas, Suryoday, ESAF, Jana, Utkarsh etc.
+    "bank.in",
+    # Other ccTLD bank domains not on *.bank.in
+    "hsbc.co.in", "americanexpress.com", "sc.com",
+    "cityunionbank.com",       # CUB still on .com
+    "paisabazaar.com",         # StepUp card
+    "stashfin.com",
 })
 
 # ── Jina rate-limit state ─────────────────────────────────────────────────────
@@ -181,12 +195,32 @@ def sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
 
+# Query params that are tracking-only and should be stripped from harvested URLs.
+_TRACKING_PARAMS = frozenset({
+    "icid", "mc_id", "channelsource", "lgcode", "cmpid",
+    "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+    "ref", "source", "isonline", "campaign",
+})
+
+
+def _clean_url(url: str) -> str:
+    """Strip known tracking query parameters, keep functional ones."""
+    from urllib.parse import parse_qs, urlencode, urlunparse
+    p = urlparse(url)
+    if not p.query:
+        return url
+    qs = {k: v for k, v in parse_qs(p.query, keep_blank_values=False).items()
+          if k.lower() not in _TRACKING_PARAMS}
+    return urlunparse(p._replace(query=urlencode(qs, doseq=True)))
+
+
 def absolutize(base: str, links: list[str]) -> list[str]:
     out, seen = [], set()
     for href in links:
         if not href: continue
         u = urljoin(base, href.split("#")[0])
         if not urlparse(u).scheme.startswith("http"): continue
+        u = _clean_url(u)
         if u in seen: continue
         seen.add(u); out.append(u)
     return out
@@ -195,6 +229,8 @@ def absolutize(base: str, links: list[str]) -> list[str]:
 def harvest_links(html: str, base_url: str) -> list[str]:
     soup  = BeautifulSoup(html or "", "lxml")
     hrefs = [a.get("href") for a in soup.find_all("a", href=True)]
-    # Jina reader returns markdown — extract [text](url) links too
-    md_links = re.findall(r'\]\((https?://[^\s)]+)\)', html or "")
-    return absolutize(base_url, hrefs + md_links)
+    # Jina returns markdown — extract both absolute and relative markdown links.
+    # Relative links like [Card Name](/path/to/card) were previously missed entirely.
+    abs_md  = re.findall(r'\]\((https?://[^\s)]+)\)', html or "")
+    rel_md  = re.findall(r'\]\((/[^\s)#][^\s)]*)\)',  html or "")
+    return absolutize(base_url, hrefs + abs_md + rel_md)

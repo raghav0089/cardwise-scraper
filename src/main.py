@@ -26,18 +26,18 @@ FORCE_REFRESH = os.getenv("FORCE_REFRESH", "0") == "1"
 
 # Hardcoded smoke-test URLs — mix of listing pages and individual card detail pages
 _SMOKE_TEST_URLS = [
-    # Listing pages (multi-card split test)
-    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards",        "issuer_id": "hdfc",       "issuer_name": "HDFC Bank",         "is_discovery": False, "is_listing": True},
+    # Listing pages — verify multi-card extraction
+    {"url": "https://www.hdfc.bank.in/credit-cards",                             "issuer_id": "hdfc",     "issuer_name": "HDFC Bank",  "is_discovery": False, "is_listing": True},
     {"url": "https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card", "issuer_id": "icici", "issuer_name": "ICICI Bank", "is_discovery": False, "is_listing": True},
-    {"url": "https://www.sbicard.com/en/personal/credit-cards.page",           "issuer_id": "sbi_card",   "issuer_name": "SBI Card",          "is_discovery": False, "is_listing": True},
-    # Individual card detail pages (single-card extraction test)
-    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/regalia-credit-card",          "issuer_id": "hdfc",    "issuer_name": "HDFC Bank",    "is_discovery": False},
-    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/millennia-credit-card",        "issuer_id": "hdfc",    "issuer_name": "HDFC Bank",    "is_discovery": False},
-    {"url": "https://www.axisbank.com/retail/cards/credit-card/axis-bank-ace-credit-card",           "issuer_id": "axis",    "issuer_name": "Axis Bank",    "is_discovery": False},
-    {"url": "https://www.axisbank.com/retail/cards/credit-card/flipkart-axis-bank-credit-card",      "issuer_id": "axis",    "issuer_name": "Axis Bank",    "is_discovery": False},
-    {"url": "https://www.sbicard.com/en/personal/credit-cards/travel/sbi-card-elite.page",           "issuer_id": "sbi_card","issuer_name": "SBI Card",     "is_discovery": False},
-    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card", "issuer_id": "hdfc",    "issuer_name": "HDFC Bank",    "is_discovery": False},
-    {"url": "https://www.getonecard.app/",                                                            "issuer_id": "onecard", "issuer_name": "OneCard",      "is_discovery": False},
+    {"url": "https://www.sbicard.com/en/personal/credit-cards.page",             "issuer_id": "sbi_card", "issuer_name": "SBI Card",   "is_discovery": False, "is_listing": True},
+    {"url": "https://www.axis.bank.in/cards/credit-card",                        "issuer_id": "axis",     "issuer_name": "Axis Bank",  "is_discovery": False, "is_listing": True},
+    # Detail pages — verify single-card full extraction
+    {"url": "https://www.hdfc.bank.in/credit-cards/tata-neu-infinity-hdfc-bank-credit-card", "issuer_id": "hdfc", "issuer_name": "HDFC Bank", "is_discovery": False},
+    {"url": "https://www.hdfc.bank.in/credit-cards/millennia-credit-card",       "issuer_id": "hdfc",    "issuer_name": "HDFC Bank",  "is_discovery": False},
+    {"url": "https://www.axis.bank.in/cards/credit-card/ace-credit-card",        "issuer_id": "axis",    "issuer_name": "Axis Bank",  "is_discovery": False},
+    {"url": "https://www.sbicard.com/en/personal/credit-cards/travel/sbi-card-elite.page", "issuer_id": "sbi_card", "issuer_name": "SBI Card", "is_discovery": False},
+    {"url": "https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card", "issuer_id": "hdfc", "issuer_name": "HDFC Bank", "is_discovery": False},
+    {"url": "https://www.getonecard.app/",                                                            "issuer_id": "onecard", "issuer_name": "OneCard",    "is_discovery": False},
 ]
 
 # ── URL filters ───────────────────────────────────────────────────────────────
@@ -151,12 +151,12 @@ def fetch_page(row: dict) -> dict | None:
         log.debug("skip near-empty page: %s", url)
         return None
 
-    # Detect 404 / error pages served with HTTP 200 (common on bank sites)
-    snippet = text[:400].lower()
-    if any(p in snippet for p in ("page not found", "404 error", "error 404",
-                                  "page doesn't exist", "page does not exist",
-                                  "we couldn't find", "no page found")):
-        log.info("404 content detected, skip: %s", url)
+    # Detect 404 pages returned as HTTP 200 — check only the first line (Jina title).
+    # Checking too many chars causes false positives when navigation text says "page not found".
+    first_line = text[:200].split("\n")[0].lower()
+    if any(p in first_line for p in ("page not found", "404 error", "error 404",
+                                     "page doesn't exist", "page does not exist")):
+        log.info("404 content detected, skip: %s  (title: %r)", url, first_line[:80])
         return None
 
     sha = sha256(text)
@@ -246,7 +246,7 @@ def process_page(page: dict) -> list[dict]:
     for c in cards_raw:
         name = (c.get("card_name") or "").strip()
         if not _is_valid_card_name(name):
-            log.debug("rejected non-card name %r from %s", name, page["source_url"])
+            log.info("rejected bad card_name %r from %s", name, page["source_url"])
             continue
         c["raw_text_sha256"] = page["sha"]
         c.setdefault("issuer_id",   page.get("issuer_id"))
