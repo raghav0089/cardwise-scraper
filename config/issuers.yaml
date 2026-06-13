@@ -57,9 +57,11 @@ issuers:
   - id: idfc_first
     name: IDFC FIRST Bank
     type: bank
+    sitemap_url: "https://www.idfcfirstbank.com/sitemap.xml"
     list_urls:
       - https://www.idfcfirstbank.com/credit-card
       # Note: /debit-card returns 404; IDFC FIRST focuses on credit cards
+    detail_link_pattern: "idfcfirstbank\\.com/credit-card/[a-z]"
 
   - id: yes
     name: YES Bank
