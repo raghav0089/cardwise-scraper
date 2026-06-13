@@ -26,7 +26,7 @@ FORCE_REFRESH = os.getenv("FORCE_REFRESH", "0") == "1"
 
 # Issuers to scrape when TEST_URLS=1 — covers all card categories and
 # exercises the full listing→harvest→extract pipeline, not just detail pages.
-_SMOKE_ISSUERS = {"hdfc", "axis", "sbi_card", "icici", "kotak", "indusind"}
+_SMOKE_ISSUERS = {"hdfc"}
 
 # ── URL filters ───────────────────────────────────────────────────────────────
 

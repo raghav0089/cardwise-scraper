@@ -6,17 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       test_urls:
-        description: "Smoke test — full discovery for HDFC, Axis, SBI Card, ICICI, Kotak, IndusInd only (~150 URLs)"
+        description: "Smoke test — HDFC only, fetch all cards end-to-end"
         type: boolean
         default: false
-      test_run:
-        description: "Cap total URLs processed (0 = no limit, e.g. 100 = first 100 across all issuers)"
-        type: number
-        default: 0
-      max_cards:
-        description: "Stop after extracting N cards (0 = no limit)"
-        type: number
-        default: 0
       force_refresh:
         description: "Bypass SHA cache and re-extract all pages (also purges invalid DDB records)"
         type: boolean
@@ -48,10 +40,8 @@ jobs:
           DDB_CARDS_TABLE:   cards_master
           DDB_SOURCES_TABLE: cards_sources
           S3_BUCKET:         ${{ secrets.S3_BUCKET }}
-          TEST_URLS:        ${{ inputs.test_urls && '1' || '0' }}
-          TEST_RUN:         ${{ inputs.test_run || '0' }}
-          MAX_CARDS:        ${{ inputs.max_cards || '0' }}
-          FORCE_REFRESH:    ${{ inputs.force_refresh && '1' || '0' }}
+          TEST_URLS:     ${{ inputs.test_urls && '1' || '0' }}
+          FORCE_REFRESH: ${{ inputs.force_refresh && '1' || '0' }}
         run: python -m src.main
 
       - name: Upload cards.json artifact
