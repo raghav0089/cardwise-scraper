@@ -9,16 +9,17 @@ issuers:
   - id: hdfc
     name: HDFC Bank
     type: bank
+    # Sitemap gives all card product pages directly — avoids JS-rendered listing pages
+    sitemap_url: "https://www.hdfc.bank.in/sitemap.xml"
     list_urls:
-      # New site (hdfc.bank.in) — flat listing, all cards visible, no JS tabs
+      # Kept as supplementary listing pages (pre-fetched content fed to LLM)
       - https://www.hdfc.bank.in/credit-cards
       - https://www.hdfc.bank.in/debit-cards
-      # Legacy site (hdfcbank.com) — kept as supplementary source
       - https://www.hdfcbank.com/personal/pay/cards/credit-cards
       - https://www.hdfcbank.com/personal/pay/cards/debit-cards
       - https://www.hdfcbank.com/personal/pay/cards/business-credit-card
-    # Matches detail pages on both domains
-    detail_link_pattern: "(/personal/pay/cards/.*-card|/credit-cards/[a-z0-9]|/debit-cards/[a-z0-9])"
+    # Matches individual card product pages (2-segment paths only, e.g. /credit-cards/<slug>)
+    detail_link_pattern: "^https://www\\.hdfc\\.bank\\.in/(credit|debit)-cards/[a-z0-9][a-z0-9-]+-card$"
 
   - id: icici
     name: ICICI Bank

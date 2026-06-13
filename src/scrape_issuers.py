@@ -1,20 +1,40 @@
 """Issuer job — for every configured issuer, hit its list pages, harvest
 detail URLs that look like product pages, and return them for extraction.
+
+If an issuer has a `sitemap_url`, its card URLs are extracted directly from
+the sitemap (no JS-rendered listing pages needed). list_urls are still fetched
+for their pre-rendered content so the LLM can do a listing-page extraction pass.
 """
 from __future__ import annotations
 import os, re, logging, yaml
 from pathlib import Path
 from urllib.parse import urlparse
-from .fetch import fetch, harvest_links
+import requests as _requests
+
+from .fetch import fetch, harvest_links, UA
 
 log = logging.getLogger(__name__)
 CFG = yaml.safe_load(Path("config/issuers.yaml").read_text())
-MAX_URLS_PER_ISSUER = int(os.getenv("MAX_URLS_PER_ISSUER", "50"))
+MAX_URLS_PER_ISSUER = int(os.getenv("MAX_URLS_PER_ISSUER", "150"))
 
 
 def _same_site(a: str, b: str) -> bool:
     return urlparse(a).netloc.split(":")[0].lstrip("www.") == \
            urlparse(b).netloc.split(":")[0].lstrip("www.")
+
+
+def _fetch_sitemap_urls(sitemap_url: str, pattern: re.Pattern) -> list[str]:
+    """Download a sitemap.xml and return all <loc> URLs matching the pattern."""
+    try:
+        r = _requests.get(sitemap_url, headers={"User-Agent": UA}, timeout=20)
+        r.raise_for_status()
+    except Exception as e:
+        log.warning("sitemap fetch failed %s: %s", sitemap_url, e)
+        return []
+    locs = re.findall(r"<loc>(.*?)</loc>", r.text)
+    matched = [u.strip() for u in locs if pattern.search(u.strip())]
+    log.info("sitemap %s → %d/%d URLs match pattern", sitemap_url, len(matched), len(locs))
+    return matched
 
 
 def collect_detail_urls(issuer_ids: set[str] | None = None) -> list[dict]:
@@ -37,10 +57,27 @@ def collect_detail_urls(issuer_ids: set[str] | None = None) -> list[dict]:
         cap   = issuer.get("max_urls", MAX_URLS_PER_ISSUER)
         added: set[str] = set()
 
-        log.info("  [%d/%d] %s — fetching %d list page(s)",
-                 issuer_idx, len(issuers), issuer["name"], len(issuer["list_urls"]))
+        n_list = len(issuer.get("list_urls") or [])
+        sitemap = issuer.get("sitemap_url", "")
+        log.info("  [%d/%d] %s — %s",
+                 issuer_idx, len(issuers), issuer["name"],
+                 f"sitemap + {n_list} list page(s)" if sitemap else f"{n_list} list page(s)")
 
-        for list_url in issuer["list_urls"]:
+        # ── Sitemap-based URL discovery ───────────────────────────────────────
+        if sitemap:
+            for u in _fetch_sitemap_urls(sitemap, pat):
+                if u not in added:
+                    added.add(u)
+                    out.append({
+                        "url":        u,
+                        "issuer_id":  issuer["id"],
+                        "issuer_name":issuer["name"],
+                        "issuer_type":issuer["type"],
+                    })
+            log.info("    sitemap contributed %d card URLs", len(added))
+
+        # ── List-page HTML harvest ────────────────────────────────────────────
+        for list_url in (issuer.get("list_urls") or []):
             result = fetch(list_url)
             html   = result.html if result and result.ok else ""
 
@@ -53,7 +90,7 @@ def collect_detail_urls(issuer_ids: set[str] | None = None) -> list[dict]:
                     "issuer_name":     issuer["name"],
                     "issuer_type":     issuer["type"],
                     "is_listing":      True,
-                    "prefetched_html": html,   # avoids re-fetch in main loop
+                    "prefetched_html": html,
                 })
 
             if not html:

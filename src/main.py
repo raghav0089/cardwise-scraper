@@ -198,7 +198,7 @@ def _is_valid_card_name(name: str) -> bool:
     if not name:
         return False
     name = name.strip()
-    if len(name) > 70:        # SEO titles are always long
+    if len(name) > 100:       # SEO titles are always long (>100 chars)
         return False
     if '?' in name:           # activation prompts, FAQ entries
         return False
