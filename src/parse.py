@@ -7,6 +7,7 @@ Handles both:
 from __future__ import annotations
 import re, logging
 from typing import Optional
+from urllib.parse import urlparse
 
 log = logging.getLogger(__name__)
 
@@ -55,11 +56,20 @@ _ISSUER_CURRENCY: dict[str, str] = {
 # Utilities
 # ─────────────────────────────────────────────────────────────
 
-def _num(s: str) -> Optional[float]:
+_LAKH_RE  = re.compile(r"\blakh|\blac\b", re.I)
+_CRORE_RE = re.compile(r"\bcrore|\bcr\b", re.I)
+
+def _num(s: str, suffix: str = "") -> Optional[float]:
+    """Parse a number, handling Indian lakh/crore suffixes in `suffix`."""
     try:
-        return float(re.sub(r"[^\d.]", "", s))
+        n = float(re.sub(r"[^\d.]", "", s))
     except Exception:
         return None
+    if _LAKH_RE.search(suffix):
+        n *= 100_000
+    elif _CRORE_RE.search(suffix):
+        n *= 10_000_000
+    return n
 
 def _ctx(md: str, m: re.Match, before: int = 60, after: int = 200) -> str:
     return md[max(0, m.start() - before): m.end() + after].replace("\n", " ").strip()
@@ -77,18 +87,28 @@ def _clean_text(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text[:250]
 
+_GENERIC_PREFIX_RE = re.compile(
+    r"^(?:apply\s+for|get|best|find|compare|about|explore|discover|learn)\s+", re.I)
+
 def _clean_card_name(raw: str) -> str:
     """Turn a noisy Jina/SEO title into a clean card product name."""
     # [Card Name](url) → Card Name
     val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', raw).strip()
     # Strip "| Bank Name" suffix  (Jina Title: format)
     val = re.sub(r'\s*\|.*$', '', val).strip()
-    # Strip ": marketing tagline" when the part before colon already names a card
-    m = re.match(r'^(.{5,60}(?:credit|debit|prepaid|forex|card))\s*:.+$', val, re.I)
-    if m:
-        val = m.group(1).strip()
-    # Strip " - tagline" similarly
-    m = re.match(r'^(.{5,60}(?:credit|debit|prepaid|forex|card))\s*-.+$', val, re.I)
+    # "Short Label: Full Card Name" — take the more specific (usually longer) part
+    if ':' in val:
+        before, after = val.split(':', 1)
+        before = before.strip()
+        after  = _GENERIC_PREFIX_RE.sub('', after.strip())
+        b_card = bool(re.search(r'credit|debit|prepaid|forex|card', before, re.I))
+        a_card = bool(re.search(r'credit|debit|prepaid|forex|card', after,  re.I))
+        if a_card and (not b_card or len(after) > len(before)):
+            val = after
+        elif b_card:
+            val = before
+    # Strip " - tagline" when part before dash already names a card
+    m = re.match(r'^(.{10,60}(?:credit|debit|prepaid|forex|card))\s*-.+$', val, re.I)
     if m and len(m.group(1)) < len(val) - 5:
         val = m.group(1).strip()
     return val.strip()
@@ -151,18 +171,57 @@ _GENERIC_NAME_RE = re.compile(
     re.I,
 )
 
+_BAD_NAME_INLINE = re.compile(
+    r"log\s*in|sign\s*in|menu\b|nav\b|calculat|savings\s+calculator|"
+    r"find\s+what|links\s+below|skip\s+to|use\s+the",
+    re.I,
+)
+
 def _name(md: str) -> Optional[str]:
     for pat in _NAME_PATS:
-        m = pat.search(md)
-        if m:
+        for m in pat.finditer(md):   # try ALL matches, not just the first
             val = _clean_card_name(m.group(1).strip())
             if not val:
                 continue
             if _GENERIC_NAME_RE.search(val):
                 continue
-            if 5 < len(val) < 120 and not re.search(r"log\s*in|sign\s*in|menu|nav", val, re.I):
+            if _BAD_NAME_INLINE.search(val):
+                continue
+            if 5 < len(val) < 120:
                 return val
     return None
+
+
+# ─────────────────────────────────────────────────────────────
+# Name from URL slug (fallback)
+# ─────────────────────────────────────────────────────────────
+
+_SLUG_ABBREVS = frozenset({"hdfc", "sbi", "icici", "upi", "emi", "idfc", "rbl", "rrb",
+                            "nri", "bsl", "irctc", "bpcl", "iocl", "hpcl", "au", "sc"})
+_SLUG_PROPER  = {"rupay": "RuPay", "amex": "Amex", "payback": "PAYBACK",
+                 "mmb": "MMB", "nykaa": "Nykaa", "swiggy": "Swiggy"}
+
+def _name_from_url(url: str) -> Optional[str]:
+    """Derive a clean card name from a product-page URL slug.
+
+    /credit-cards/millennia-credit-card  →  'Millennia Credit Card'
+    """
+    path = urlparse(url).path.rstrip("/")
+    slug = path.rsplit("/", 1)[-1]
+    if not slug or not re.search(r"card|miles|rupay|cashback", slug, re.I):
+        return None
+    parts = slug.split("-")
+    result = []
+    for p in parts:
+        pl = p.lower()
+        if pl in _SLUG_ABBREVS:
+            result.append(p.upper())
+        elif pl in _SLUG_PROPER:
+            result.append(_SLUG_PROPER[pl])
+        else:
+            result.append(p.capitalize())
+    name = " ".join(result)
+    return name if 5 < len(name) < 100 else None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -197,10 +256,12 @@ _SEG_RE = {
 
 _INR = r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)"
 _FEE_PATS = [
-    ("joining_fee_inr",       re.compile(r"join(?:ing)?\s*fee[^₹\d\n]{0,40}"  + _INR, re.I)),
+    ("joining_fee_inr",       re.compile(r"join(?:ing)?\s*(?:or\s+)?(?:renewal\s+)?(?:membership\s+)?fee[^₹\d\n]{0,50}" + _INR, re.I)),
     ("annual_fee_inr",        re.compile(r"annual\s*(?:fee|membership)[^₹\d\n]{0,40}" + _INR, re.I)),
-    ("renewal_fee_inr",       re.compile(r"renewal\s*fee[^₹\d\n]{0,40}"       + _INR, re.I)),
-    ("fee_waiver_spend_inr",  re.compile(r"(?:fee\s+waiver|waived?\s+on\s+(?:annual\s+)?spend)[^₹\d\n]{0,50}" + _INR, re.I)),
+    ("renewal_fee_inr",       re.compile(r"renewal\s*(?:membership\s+)?fee[^₹\d\n]{0,50}" + _INR, re.I)),
+    ("fee_waiver_spend_inr",  re.compile(
+        r"(?:fee\s+waiver|fee\s+waived?|waived?\s+(?:on|by)\s+(?:annual\s+|spending\s+)?spend|"
+        r"annual\s+spend[s]?\s+of|waiv\w+\s+fee)[^₹\d\n]{0,80}" + _INR, re.I)),
     ("addon_card_fee_inr",    re.compile(r"(?:add.?on|supplementary)\s*card\s*fee[^₹\d\n]{0,40}" + _INR, re.I)),
     ("cash_advance_fee_pct",  re.compile(r"cash\s*advance\s*fee[^%\d\n]{0,40}([\d.]+)\s*%", re.I)),
     ("finance_charge_pct_mo", re.compile(r"(?:finance\s*charge|monthly\s*interest|interest\s*rate)[^%\d\n]{0,40}([\d.]+)\s*%", re.I)),
@@ -341,13 +402,13 @@ def _welcome(md: str) -> Optional[str]:
 # ─────────────────────────────────────────────────────────────
 
 _MILE_RE = re.compile(
-    r"(?:spend|spending|spends?)\s+(?:of\s+)?[₹rs.]*\s*([\d,]+)[^.\n]{0,80}"
+    r"(?:spend|spending|spends?)\s+(?:of\s+)?[₹rs.]*\s*([\d,]+(?:\.\d+)?)\s*(lakh|lac|crore|cr\b)?[^.\n]{0,80}"
     r"(?:get|earn|receive|enjoy|unlock|bonus)\s+([^.\n]{10,150})", re.I)
 
 def _milestones(md: str) -> list:
     out, seen = [], set()
     for m in _MILE_RE.finditer(md):
-        spend = _num(m.group(1))
+        spend = _num(m.group(1), m.group(2) or "")
         if not spend or spend in seen:
             continue
         seen.add(spend)
@@ -356,7 +417,7 @@ def _milestones(md: str) -> list:
         period = ("monthly" if "month" in ctx else
                   "quarterly" if "quarter" in ctx else
                   "annual" if "annual" in ctx or "year" in ctx else None)
-        out.append({"spend_inr": spend, "reward": _clean_text(m.group(2)),
+        out.append({"spend_inr": spend, "reward": _clean_text(m.group(3)),
                     "value_inr": None, "period": period})
     return out
 
@@ -370,14 +431,16 @@ _DOM_LG  = re.compile(
     r"(\d+)\s+(?:complimentary\s+)?(?:domestic\s+)?(?:airport\s+)?lounge"
     r"(?:\s+(?:visit|access|trip)s?)?(?:[^.\n]{0,40}domestic)?", re.I)
 _INTL_LG = re.compile(
-    r"(\d+)\s+(?:complimentary\s+)?international\s+(?:airport\s+)?lounge"
-    r"(?:\s+(?:visit|access|trip)s?)?", re.I)
+    r"(\d+)\s+(?:complimentary\s+)?(?:"
+    r"international\s+(?:airport\s+)?lounge(?:\s+(?:visit|access|trip)s?)?"
+    r"|(?:airport\s+)?lounge(?:\s+(?:visit|access|trip)s?)?[^.\n]{0,60}outside\s+india"
+    r")", re.I)
 _LG_PROG = re.compile(r"\b(Priority\s+Pass|DreamFolks|LoungeKey|Lounge\s+Key)\b", re.I)
 # Spend required to unlock lounge: "spend ₹X per quarter" or "minimum spend ₹X"
 _LG_SPND = re.compile(
     r"(?:lounge[^.\n]{0,100}|unlock\s+lounge[^.\n]{0,60})"
     r"(?:spend|spends?)[^₹\d\n]{0,20}" + _INR, re.I)
-_QTR_RE  = re.compile(r"per\s+quarter|quarterly|every\s+quarter", re.I)
+_QTR_RE  = re.compile(r"per\s+(?:calendar\s+)?quarter|quarterly|every\s+(?:calendar\s+)?quarter|each\s+(?:calendar\s+)?quarter", re.I)
 _HALF_RE = re.compile(r"per\s+half.?year|bi.?annual", re.I)
 _GUEST   = re.compile(r"\bguest\b|complimentary\s+companion", re.I)
 
@@ -537,8 +600,15 @@ def _parse_one(md: str, base: dict) -> Optional[dict]:
         "category":    "credit",
     }
 
-    if n := _name(md):
-        card["card_name"] = n
+    n_page = _name(md)
+    n_url  = _name_from_url(base.get("source_url") or "") if base.get("source_url") else None
+    # Prefer page name when it contains "card"; fall back to URL slug otherwise
+    if n_page and re.search(r'\bcard\b', n_page, re.I):
+        card["card_name"] = n_page
+    elif n_url:
+        card["card_name"] = n_url
+    elif n_page:
+        card["card_name"] = n_page
 
     for cat, pat in _CAT_RE.items():
         if pat.search(md):
@@ -593,29 +663,27 @@ def parse_cards(page: dict) -> list[dict]:
         "source_url":  page.get("source_url"),
     }
 
-    sections = _split_sections(md)
-    if sections:
-        # Listing page with identifiable card sections
-        cards = []
-        for card_name, section_md in sections:
-            # Skip generic/navigation headings before parsing
-            if _GENERIC_NAME_RE.search(card_name):
-                log.debug("skip generic section: %s", card_name)
-                continue
-            card = _parse_one(section_md, base)
-            if card:
-                card.setdefault("card_name", card_name)
-                cards.append(card)
-        log.info("listing page %s → %d card(s) from %d section(s)",
-                 base["source_url"], len(cards), len(sections))
-        return cards
-
+    # Only attempt section-splitting on listing pages — detail pages contain many
+    # ##-level headings with "card" keywords that would be misidentified as sections.
     if is_listing:
-        # Listing page that didn't split into card sections — skip it.
-        # Individual detail pages collected from this listing will have the data.
+        sections = _split_sections(md)
+        if sections:
+            cards = []
+            for card_name, section_md in sections:
+                if _GENERIC_NAME_RE.search(card_name):
+                    log.debug("skip generic section: %s", card_name)
+                    continue
+                card = _parse_one(section_md, base)
+                if card:
+                    card.setdefault("card_name", card_name)
+                    cards.append(card)
+            log.info("listing page %s → %d card(s) from %d section(s)",
+                     base["source_url"], len(cards), len(sections))
+            return cards
+        # Listing page that didn't split — skip; detail pages will have the data.
         log.debug("listing page with no splittable sections, skipping: %s", base["source_url"])
         return []
 
-    # Product/detail page — single card
+    # Detail page — parse as a single card
     card = _parse_one(md, base)
     return [card] if card else []

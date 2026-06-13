@@ -18,6 +18,7 @@ from __future__ import annotations
 import os, json, logging, time
 from pathlib import Path
 from jsonschema import Draft7Validator
+from .parse import parse_cards
 
 log = logging.getLogger(__name__)
 SCHEMA    = json.loads(Path("schema/card.schema.json").read_text())
@@ -488,6 +489,16 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
     if not valid:
         return []
 
+    # Primary: rule-based parser — no API calls, always runs first
+    rule_cards: list[dict] = []
+    for p in valid:
+        rule_cards.extend(parse_cards(p))
+    if rule_cards:
+        log.info("extracted %d card(s) from %d page(s) via rule-based parser",
+                 len(rule_cards), len(valid))
+        return rule_cards
+
+    # Fallback: LLM chain (Ollama → Gemini → Groq → OpenAI)
     parts = []
     for i, p in enumerate(valid, 1):
         is_listing = p.get("is_listing", False)
