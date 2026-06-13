@@ -33,40 +33,26 @@ issuers:
   - id: axis
     name: Axis Bank
     type: bank
-    list_urls:
-      # New website (axis.bank.in) — category pages cover all card types
-      - https://www.axis.bank.in/cards/credit-card?category=Shop
-      - https://www.axis.bank.in/cards/credit-card?category=Travel
-      - https://www.axis.bank.in/cards/credit-card?category=Dine
-      - https://www.axis.bank.in/cards/credit-card?category=Fuel
-      - https://www.axis.bank.in/cards/credit-card?category=Miles
-      - https://www.axis.bank.in/cards/credit-card?category=Cashback
-      - https://www.axis.bank.in/cards/credit-card
-      - https://www.axis.bank.in/cards/debit-card
-    detail_link_pattern: "/cards/(credit|debit)-card/"
+    # Sitemap gives all individual card product pages directly
+    sitemap_url: "https://www.axis.bank.in/sitemap-english.xml"
+    list_urls: []
+    detail_link_pattern: "axis\\.bank\\.in/cards/(credit|debit)-card/[a-z]"
 
   - id: sbi_card
     name: SBI Card
     type: bank
-    list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards.page
-      # Category listing pages to ensure all cards are discovered
-      - https://www.sbicard.com/en/personal/credit-cards/lifestyle.page
-      - https://www.sbicard.com/en/personal/credit-cards/rewards.page
-      - https://www.sbicard.com/en/personal/credit-cards/travel.page
-      - https://www.sbicard.com/en/personal/credit-cards/cashback.page
-      - https://www.sbicard.com/en/personal/credit-cards/fuel.page
-      - https://www.sbicard.com/en/personal/credit-cards/shopping.page
-    detail_link_pattern: "/credit-cards/.*\\.page$"
+    # Sitemap has 200+ .html card pages (the .page extension URLs are 404)
+    sitemap_url: "https://www.sbicard.com/sitemap.xml"
+    list_urls: []
+    detail_link_pattern: "sbicard\\.com/en/personal/credit-cards/.*\\.html$"
 
   - id: kotak
     name: Kotak Mahindra Bank
     type: bank
-    list_urls:
-      # New domain (kotak.bank.in)
-      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards.html
-      - https://www.kotak.bank.in/en/personal-banking/cards/debit-cards.html
-    detail_link_pattern: "/personal-banking/cards/credit-cards/|/personal-banking/cards/debit-cards/"
+    # sitemap-personalbanking.xml has 60+ individual credit/debit card product pages
+    sitemap_url: "https://www.kotak.bank.in/sitemap-personalbanking.xml"
+    list_urls: []
+    detail_link_pattern: "kotak\\.bank\\.in/en/personal-banking/cards/(credit|debit)-cards/[a-z][a-z0-9-]+\\.html$"
 
   - id: idfc_first
     name: IDFC FIRST Bank
@@ -88,12 +74,10 @@ issuers:
   - id: indusind
     name: IndusInd Bank
     type: bank
-    list_urls:
-      # New domain (indusind.bank.in)
-      - https://www.indusind.bank.in/in/en/personal/cards/credit-card.html
-      - https://www.indusind.bank.in/in/en/personal/cards/debit-card.html
-      - https://www.indusind.bank.in/in/en/personal/cards.html
-    detail_link_pattern: "/personal/cards/credit-card/|/personal/cards/debit-card/"
+    # sitemap has 84 individual credit/debit card product pages
+    sitemap_url: "https://www.indusind.bank.in/sitemap.xml"
+    list_urls: []
+    detail_link_pattern: "indusind\\.bank\\.in/in/en/personal/cards/(credit|debit)-card/[a-z][a-z0-9-]+\\.html$"
 
   - id: rbl
     name: RBL Bank
@@ -334,7 +318,8 @@ issuers:
     name: Flipkart Axis
     type: cobrand
     list_urls:
-      - https://www.axis.bank.in/cards/credit-card/flipkart-axis-bank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/flipkart-axisbank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/flipkart-axis-bank-super-elite-credit-card
 
   - id: amazon_pay_icici
     name: Amazon Pay ICICI
@@ -342,13 +327,13 @@ issuers:
     list_urls:
       - https://www.amazon.in/amazonpay/icicibank/creditcard
       - https://www.icicibank.com/personal-banking/cards/credit-card/amazon-pay-credit-card
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/amazon-pay-credit-card
 
   - id: myntra_kotak
     name: Myntra Kotak
     type: cobrand
     list_urls:
-      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/myntra-kotak-credit-card.html
+      # Myntra Kotak card was discontinued; PVR INOX Kotak is the current entertainment card
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/pvr-inox-kotak-credit-card.html
 
   - id: swiggy_hdfc
     name: Swiggy HDFC
@@ -362,6 +347,7 @@ issuers:
     type: cobrand
     list_urls:
       - https://www.axis.bank.in/cards/credit-card/airtel-axis-bank-credit-card
+      # Already discovered via Axis sitemap — kept here for explicit coverage
 
 
   - id: unity_sfb
@@ -378,31 +364,33 @@ issuers:
     list_urls:
       - https://www.axis.bank.in/cards/credit-card/indianoil-axis-bank-credit-card
       - https://www.axis.bank.in/cards/credit-card/indianoil-premium-credit-card
+      # Also available via Axis sitemap
 
   - id: swiggy_axis  # separate from Swiggy HDFC — different card, different issuer
     name: Swiggy Axis Bank
     type: cobrand
     list_urls:
-      - https://www.axis.bank.in/cards/credit-card/swiggy-axis-bank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/axis-bank-ace-credit-card  # ACE covers Swiggy cashback; dedicated Swiggy card was discontinued
 
   - id: bpcl_sbi
     name: BPCL SBI Card
     type: cobrand
     list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/fuel/bpcl-sbi-card.page
+      - https://www.sbicard.com/en/personal/credit-cards/bpcl-sbi-card.html
+      - https://www.sbicard.com/en/personal/credit-cards/bpcl-sbi-card-octane.html
 
   - id: irctc_sbi
     name: IRCTC SBI Card
     type: cobrand
     list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/travel/irctc-sbi-card.page
-      - https://www.sbicard.com/en/personal/credit-cards/travel/irctc-sbi-card-premier.page
+      - https://www.sbicard.com/en/personal/credit-cards/irctc-sbi-platinum-card.html
+      - https://www.sbicard.com/en/personal/credit-cards/irctc-premier-card.html
 
   - id: ola_sbi
     name: OLA SBI Card
     type: cobrand
     list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/shopping/ola-money-sbi-card.page
+      - https://www.sbicard.com/en/personal/credit-cards/ola-money-sbi-card.html
 
   # ---------- Forex / transit / prepaid ----------
 
@@ -601,100 +589,78 @@ issuers:
       - https://www.hdfcbank.com/personal/pay/cards/credit-cards/phonepe-hdfc-bank-uno-credit-card
 
   # ---------- Additional SBI Card co-brands ----------
-  - id: yatra_sbi
-    name: Yatra SBI Card
-    type: cobrand
-    list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/travel/yatra-sbi-card.page
-
   - id: apollo_sbi
     name: Apollo SBI Card SELECT
     type: cobrand
     list_urls:
       - https://www.sbicard.com/en/personal/credit-cards/apollo-sbi-card-select.html
-
-  - id: lifestyle_hc_sbi
-    name: Lifestyle Home Centre SBI Card
-    type: cobrand
-    list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/shopping/lifestyle-hc-sbi-card.page
-      - https://www.sbicard.com/en/personal/credit-cards/shopping/lifestyle-hc-sbi-card-select.page
-      - https://www.sbicard.com/en/personal/credit-cards/shopping/hc-sbi-card-prime.page
+      - https://www.sbicard.com/en/personal/credit-cards/apollo-sbi-card.html
 
   - id: club_vistara_sbi
     name: Club Vistara SBI Card
     type: cobrand
     list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/travel/club-vistara-sbi-card.page
-      - https://www.sbicard.com/en/personal/credit-cards/travel/club-vistara-sbi-card-prime.page
+      - https://www.sbicard.com/en/personal/credit-cards/club-vistara-sbi-card.html
+      - https://www.sbicard.com/en/personal/credit-cards/club-vistara-sbi-card-prime.html
 
   - id: air_india_sbi
     name: Air India SBI Card
     type: cobrand
     list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/travel/air-india-sbi-card.page
-      - https://www.sbicard.com/en/personal/credit-cards/travel/air-india-sbi-card-signature.page
-
-  - id: bpcl_sbi_octane
-    name: BPCL SBI Card OCTANE
-    type: cobrand
-    list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/bpcl-sbi-card-octane.html
-
-  - id: irctc_sbi_premier
-    name: IRCTC SBI Card Premier
-    type: cobrand
-    list_urls:
-      - https://www.sbicard.com/en/personal/credit-cards/travel/irctc-sbi-card-premier.page
+      - https://www.sbicard.com/en/personal/credit-cards/air-india-sbi-platinum-card.html
+      - https://www.sbicard.com/en/personal/credit-cards/air-india-sbi-signature-card.html
 
   # ---------- Additional ICICI co-brands ----------
   - id: icici_hpcl
     name: HPCL ICICI Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/hpcl-icici-bank-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/hpcl-icici-bank-credit-card
 
   - id: icici_makemytrip
     name: MakeMyTrip ICICI Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/makemytrip-icici-bank-credit-card
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/mmt-black-icici-bank-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/makemytrip-icici-bank-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/mmt-black-icici-bank-credit-card
 
   - id: icici_irctc
     name: IRCTC ICICI Bank RuPay Credit Card
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/irctc-icici-bank-rupay-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/irctc-icici-bank-rupay-credit-card
 
   - id: times_black_icici
     name: Times Black ICICI Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/times-black-icici-bank-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/times-black-icici-bank-credit-card
 
   - id: icici_imobile_payback
     name: ICICI Bank Coral & Premium Cards
     type: cobrand
     list_urls:
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/coral-credit-card
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/rubyx-credit-card
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/sapphiro-credit-card
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/emeralde-credit-card
-      - https://www.icicibank.com/personal-banking/cards/consumer-cards/credit-card/emeralde-private-metal-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/coral-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/rubyx-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/sapphiro-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/emeralde-credit-card
+      - https://www.icicibank.com/personal-banking/cards/credit-card/emeralde-private-metal-credit-card
 
   # ---------- Additional Axis co-brands ----------
   - id: club_vistara_axis
     name: Club Vistara Axis Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.axis.bank.in/cards/credit-card/club-vistara-axis-bank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/axis-bank-vistara-credit-card
+      - https://www.axis.bank.in/cards/credit-card/axis-bank-vistara-signature-credit-card
+      - https://www.axis.bank.in/cards/credit-card/axis-bank-vistara-infinite-credit-card
 
   - id: samsung_axis
     name: Samsung Axis Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.axis.bank.in/cards/credit-card/samsung-axis-bank-credit-card
+      - https://www.axis.bank.in/cards/credit-card/samsung-axis-bank-infinite-credit-card
+      - https://www.axis.bank.in/cards/credit-card/samsung-axis-bank-signature-credit-card
 
   # ---------- Additional IndusInd co-brands ----------
   - id: club_vistara_indusind
@@ -714,14 +680,16 @@ issuers:
     name: IndiGo Kotak Bank Credit Card
     type: cobrand
     list_urls:
-      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/6e-rewards-xl-indigo-kotak-bank-credit-card.html
-      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-ka-zing-kotak-bank-rupay-credit-card.html
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-credit-card.html
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-kotak-credit-card.html
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-kotak-xl-credit-card.html
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-xl-credit-card.html
 
   - id: pvr_kotak
-    name: PVR Kotak Credit Card
+    name: PVR INOX Kotak Credit Card
     type: cobrand
     list_urls:
-      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/pvr-kotak-credit-card.html
+      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/pvr-inox-kotak-credit-card.html
 
   # ---------- BOBCARD premium variants ----------
   - id: bobcard_premium

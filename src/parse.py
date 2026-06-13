@@ -96,6 +96,11 @@ def _clean_card_name(raw: str) -> str:
     val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', raw).strip()
     # Strip "| Bank Name" suffix  (Jina Title: format)
     val = re.sub(r'\s*\|.*$', '', val).strip()
+    # Strip " - <Bank/Finance/Financial Name>" suffix (common in page titles)
+    val = re.sub(r'\s+[-–]\s+(?:[A-Za-z\s]+\s+)?(?:Bank|Finance|Financial|Fin\b)\s*$', '', val, flags=re.I).strip()
+    # Strip trailing " Online" or "Online -" suffixes
+    val = re.sub(r'\s+[-–]\s+(?:Apply\s+)?Online\s*$', '', val, flags=re.I).strip()
+    val = re.sub(r'\s+Online\s*$', '', val, flags=re.I).strip()
     # "Short Label: Full Card Name" — take the more specific (usually longer) part
     if ':' in val:
         before, after = val.split(':', 1)
@@ -107,10 +112,18 @@ def _clean_card_name(raw: str) -> str:
             val = after
         elif b_card:
             val = before
-    # Strip " - tagline" when part before dash already names a card
-    m = re.match(r'^(.{10,60}(?:credit|debit|prepaid|forex|card))\s*-.+$', val, re.I)
-    if m and len(m.group(1)) < len(val) - 5:
-        val = m.group(1).strip()
+    # "Something - Apply for Actual Card Name [Online]" → extract the real card name
+    m = re.search(r'[-–]\s*(?:apply\s+for|get\s+(?:a\s+)?|best\s+)\s*(.+)', val, re.I)
+    if m:
+        candidate = _GENERIC_PREFIX_RE.sub('', m.group(1).strip())
+        candidate = re.sub(r'\s+(?:online|now|today|here)$', '', candidate, flags=re.I).strip()
+        if re.search(r'credit|debit|prepaid|forex|card', candidate, re.I) and len(candidate) > 5:
+            val = candidate
+    # Strip " - tagline" when part before dash is already the card name (min 10 chars)
+    if '-' in val or '–' in val:
+        m = re.match(r'^(.{10,60}(?:credit|debit|prepaid|forex|card))\s*[-–].+$', val, re.I)
+        if m and len(m.group(1)) < len(val) - 5:
+            val = m.group(1).strip()
     return val.strip()
 
 
@@ -204,11 +217,19 @@ _SLUG_PROPER  = {"rupay": "RuPay", "amex": "Amex", "payback": "PAYBACK",
 def _name_from_url(url: str) -> Optional[str]:
     """Derive a clean card name from a product-page URL slug.
 
-    /credit-cards/millennia-credit-card  →  'Millennia Credit Card'
+    /credit-cards/millennia-credit-card                          → 'Millennia Credit Card'
+    /credit-cards/tata-card-apply-for-tata-neu-plus-credit-card → 'Tata Neu Plus Credit Card'
     """
     path = urlparse(url).path.rstrip("/")
     slug = path.rsplit("/", 1)[-1]
     if not slug or not re.search(r"card|miles|rupay|cashback", slug, re.I):
+        return None
+    # Strip SEO junk: "some-brand-apply-for-actual-card-name" → keep everything after "apply-for-"
+    slug = re.sub(r"^.*?apply-for-", "", slug, flags=re.I)
+    # Strip trailing modifiers that aren't part of the product name
+    slug = re.sub(r"\.(page|html|aspx|php)$", "", slug, flags=re.I)
+    slug = re.sub(r"-(online|now|today|here|quickly|india|new)$", "", slug, flags=re.I)
+    if not re.search(r"card|miles|rupay|cashback", slug, re.I):
         return None
     parts = slug.split("-")
     result = []
@@ -255,13 +276,17 @@ _SEG_RE = {
 # ─────────────────────────────────────────────────────────────
 
 _INR = r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)"
+# Extended pattern that also captures lakh/crore suffix (group 2) for spend thresholds
+_INR_LAKH = r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(lakh|lac|crore|cr\b)?"
 _FEE_PATS = [
-    ("joining_fee_inr",       re.compile(r"join(?:ing)?\s*(?:or\s+)?(?:renewal\s+)?(?:membership\s+)?fee[^₹\d\n]{0,50}" + _INR, re.I)),
-    ("annual_fee_inr",        re.compile(r"annual\s*(?:fee|membership)[^₹\d\n]{0,40}" + _INR, re.I)),
-    ("renewal_fee_inr",       re.compile(r"renewal\s*(?:membership\s+)?fee[^₹\d\n]{0,50}" + _INR, re.I)),
+    # Negative lookahead (?!\s+reversal) prevents matching "Joining fee reversal on ₹X spend"
+    ("joining_fee_inr",       re.compile(r"join(?:ing)?\s*(?:or\s+)?(?:renewal\s+)?(?:membership\s+)?fee(?!\s+reversal)[^₹\d\n]{0,50}" + _INR, re.I)),
+    ("annual_fee_inr",        re.compile(r"annual\s*(?:fee|membership)(?!\s+(?:reversal|waiver|waived?))[^₹\d\n]{0,40}" + _INR, re.I)),
+    ("renewal_fee_inr",       re.compile(r"renewal\s*(?:membership\s+)?fee(?!\s+reversal)[^₹\d\n]{0,50}" + _INR, re.I)),
+    # fee_waiver uses _INR_LAKH (2 groups) to handle "1 Lakh" amounts; "fee reversal" = fee waiver
     ("fee_waiver_spend_inr",  re.compile(
         r"(?:fee\s+waiver|fee\s+waived?|waived?\s+(?:on|by)\s+(?:annual\s+|spending\s+)?spend|"
-        r"annual\s+spend[s]?\s+of|waiv\w+\s+fee)[^₹\d\n]{0,80}" + _INR, re.I)),
+        r"annual\s+spend[s]?\s+of|waiv\w+\s+fee|fee\s+reversal\s+on\s+(?:annual\s+)?spend)[^₹\d\n]{0,80}" + _INR_LAKH, re.I)),
     ("addon_card_fee_inr",    re.compile(r"(?:add.?on|supplementary)\s*card\s*fee[^₹\d\n]{0,40}" + _INR, re.I)),
     ("cash_advance_fee_pct",  re.compile(r"cash\s*advance\s*fee[^%\d\n]{0,40}([\d.]+)\s*%", re.I)),
     ("finance_charge_pct_mo", re.compile(r"(?:finance\s*charge|monthly\s*interest|interest\s*rate)[^%\d\n]{0,40}([\d.]+)\s*%", re.I)),
@@ -270,11 +295,21 @@ _FEE_PATS = [
 _FUEL_RE = re.compile(r"fuel\s+surcharge\s+waiver[^.\n]{0,120}", re.I)
 _GST_RE  = re.compile(r"\+\s*gst|exclusive\s+of\s+gst|plus\s+applicable\s+taxes", re.I)
 
+# Fields that use _INR_LAKH (2 groups: amount, suffix)
+_TWO_GROUP_FIELDS = frozenset({"fee_waiver_spend_inr"})
+
 def _fees(md: str) -> dict:
     out: dict = {}
     for key, pat in _FEE_PATS:
         if m := pat.search(md):
-            out[key] = _num(m.group(1))
+            if key in _TWO_GROUP_FIELDS:
+                try:
+                    suffix = m.group(2) or ""
+                except IndexError:
+                    suffix = ""
+                out[key] = _num(m.group(1), suffix)
+            else:
+                out[key] = _num(m.group(1))
     if m := _FUEL_RE.search(md):
         out["fuel_surcharge_waiver"] = _clean_text(m.group(0))
     if _GST_RE.search(md):
@@ -593,15 +628,28 @@ def _parse_one(md: str, base: dict) -> Optional[dict]:
     if not re.search(r"credit\s+card|debit\s+card|prepaid|forex\s+card", md, re.I):
         return None
 
+    src_url = base.get("source_url") or ""
+    # Infer category from URL path first (most reliable); page content can refine it
+    if "/debit-cards/" in src_url or "/debit-card" in src_url:
+        default_cat = "debit"
+    elif "/prepaid" in src_url:
+        default_cat = "prepaid"
+    elif "/forex" in src_url or "/multi-currency" in src_url:
+        default_cat = "forex"
+    elif "/business" in src_url or "/corporate" in src_url:
+        default_cat = "business"
+    else:
+        default_cat = "credit"
+
     card: dict = {
         "issuer_id":   base.get("issuer_id"),
         "issuer_name": base.get("issuer_name"),
-        "source_url":  base.get("source_url"),
-        "category":    "credit",
+        "source_url":  src_url,
+        "category":    default_cat,
     }
 
     n_page = _name(md)
-    n_url  = _name_from_url(base.get("source_url") or "") if base.get("source_url") else None
+    n_url  = _name_from_url(src_url) if src_url else None
     # Prefer page name when it contains "card"; fall back to URL slug otherwise
     if n_page and re.search(r'\bcard\b', n_page, re.I):
         card["card_name"] = n_page
@@ -610,6 +658,7 @@ def _parse_one(md: str, base: dict) -> Optional[dict]:
     elif n_page:
         card["card_name"] = n_page
 
+    # Let page content override category (e.g., a credit card on a debit page URL)
     for cat, pat in _CAT_RE.items():
         if pat.search(md):
             card["category"] = cat

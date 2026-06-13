@@ -24,6 +24,13 @@ TIMEOUT = 30
 # Minimum seconds between Jina requests — free tier allows ~20 req/min
 JINA_MIN_INTERVAL = 3.5   # ~17 req/min, safe under the 20/min free limit
 
+# Hosts where Jina can't render meaningful content (SPA with broken SSR router)
+# but direct requests returns SSR HTML with card data embedded.
+JINA_BYPASS_HOSTS: frozenset[str] = frozenset({
+    "www.axis.bank.in",
+    "axis.bank.in",
+})
+
 STRICT_PROXY_DOMAINS: frozenset[str] = frozenset({
     # Major private / PSU banks (legacy domains)
     "hdfcbank.com", "icicibank.com", "idfcfirstbank.com", "yesbank.in",
@@ -107,6 +114,14 @@ def _try_jina(url: str) -> Optional[FetchResult]:
             time.sleep(10)   # back off before next call
             return FetchResult(error="jina 429", status_code=429)
         if r.status_code == 200 and r.text:
+            # Detect SPA 404 shells — Jina renders JavaScript but gets "Page Not Found"
+            # (e.g. axis.bank.in which has SSR content but a broken SPA router)
+            first300 = r.text[:300].lower()
+            if ("page not found" in first300 or
+                    "warning: target url returned error 404" in first300 or
+                    "error 404" in first300):
+                log.warning("jina returned 404-page content for %s", url)
+                return FetchResult(error="jina_spa_404", status_code=404)
             log.debug("jina ok %.1fs %s", elapsed, url)
             return FetchResult(text=r.text, html=r.text, status_code=200)
         return FetchResult(error=f"jina status {r.status_code}", status_code=r.status_code)
@@ -153,15 +168,29 @@ def _try_requests(url: str) -> FetchResult:
 def fetch(url: str, *, prefer: str = "auto") -> FetchResult:
     log.info("fetch → %s", url)
     t0    = time.monotonic()
+    host  = urlparse(url).hostname or ""
     root  = _root_domain(url)
     strict = root in STRICT_PROXY_DOMAINS
+
+    # SPA sites where Jina can't render content — use direct requests only.
+    if host in JINA_BYPASS_HOSTS:
+        try:
+            result = _try_requests(url)
+            log.info("fetch ok (requests/spa-bypass, %.1fs) %s", time.monotonic() - t0, url)
+            return result
+        except Exception as e:
+            log.warning("fetch error (requests/spa-bypass, %.1fs) %s: %s", time.monotonic() - t0, url, e)
+            return FetchResult(error=str(e))
 
     if prefer != "requests":
         result = _try_jina(url)
         if result and result.ok:
             log.info("fetch ok (jina, %.1fs) %s", time.monotonic() - t0, url)
             return result
-        if strict:
+        # Allow direct-requests fallback even on strict domains when Jina returned a
+        # "Page Not Found" SPA shell — the SSR content is in the raw HTML.
+        jina_spa_404 = result and result.error == "jina_spa_404"
+        if strict and not jina_spa_404:
             log.warning("fetch failed strict domain (%.1fs) %s: %s",
                         time.monotonic() - t0, url,
                         result.error if result else "no result")
