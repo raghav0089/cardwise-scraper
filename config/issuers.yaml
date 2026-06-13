@@ -140,8 +140,10 @@ issuers:
   - id: karur_vysya
     name: Karur Vysya Bank
     type: bank
+    sitemap_url: "https://www.kvb.bank.in/sitemap.xml"
     list_urls:
-      - https://www.kvb.bank.in/personal/cards/index.html
+      - https://www.kvb.bank.in/personal/cards/kvb-credit-cards/
+    detail_link_pattern: "kvb\\.bank\\.in/personal/cards/kvb-credit-cards/.+/[a-z]"
 
   # ---------- PSU banks ----------
   - id: bob
