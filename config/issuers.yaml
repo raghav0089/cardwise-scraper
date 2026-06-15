@@ -63,7 +63,7 @@ issuers:
       # Note: /debit-card returns 404; IDFC FIRST focuses on credit cards
     detail_link_pattern: "idfcfirstbank\\.com/credit-card/[a-z]"
 
-  - id: yes
+  - id: "yes_bank"
     name: YES Bank
     type: bank
     list_urls:

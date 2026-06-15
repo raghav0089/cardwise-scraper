@@ -233,9 +233,22 @@ def purge_invalid_cards() -> None:
     deleted = 0
     for c in all_cards:
         name  = (c.get("card_name") or "").strip()
-        iid   = (c.get("issuer_id") or "").strip()
+        raw_iid = c.get("issuer_id")
+        # Non-string issuer_id (e.g. YAML boolean True from `id: yes`) — purge
+        if not isinstance(raw_iid, str):
+            store.delete_card(c["card_id"])
+            log.info("purged non-string issuer_id record: %s  (issuer_id=%r name=%r)", c["card_id"], raw_iid, name)
+            deleted += 1
+            continue
+        iid = raw_iid.strip()
+        # Discovery-phase cards land with issuer_id=None → stored as "unknown" — purge them
+        if not iid or iid == "unknown":
+            store.delete_card(c["card_id"])
+            log.info("purged unknown issuer_id record: %s  (name=%r)", c["card_id"], name)
+            deleted += 1
+            continue
         # LLM extractions sometimes write uppercase/malformed issuer_id — purge them
-        if iid and not _LOWERCASE_ID_RE.match(iid):
+        if not _LOWERCASE_ID_RE.match(iid):
             store.delete_card(c["card_id"])
             log.info("purged bad issuer_id record: %s  (issuer_id=%r name=%r)", c["card_id"], iid, name)
             deleted += 1
