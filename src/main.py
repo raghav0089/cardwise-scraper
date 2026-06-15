@@ -192,7 +192,14 @@ _BAD_NAME_RE = re.compile(
     r'new\s+feature|about\s+|faq\b|important[\s:]+|note[\s:]+|'
     r'introducing\b|happy\s+to|pleased\s+to|'
     r'report\s*(?:&|and)?\s*block|lost\s+or\s+stolen|block\s+(?:lost|stolen)|'
-    r'how\s+to|manage\s+your|upgrade\s+your|apply\s+for\s+(?:a\s+)?(?:hdfc|sbi|icici|axis|kotak))',
+    r'how\s+to|manage\s+your|upgrade\s+your|apply\s+for\s+(?:a\s+)?(?:hdfc|sbi|icici|axis|kotak)|'
+    # Generic page-section headings starting with "Credit/Debit Card ..."
+    r'(?:credit|debit)\s+card\s+(?:benefits?|features?|faqs?|offers?|types?|blogs?|'
+    r'basics?|rewards?|services?|tips?|guide|insurance|eligib|interest|limit\s+incr|'
+    r'pin\b|block|closur|application|apply|vs\b|against\b|bill\s+pay)|'
+    # Descriptive/educational headings that sneak "card" in
+    r'understanding\s|outstanding\s+amount|instant\s+emi|below\s+are\s|'
+    r'type\s+of\s+(?:credit|debit)|difference\s+between|what\s+is\s+credit)',
     re.I,
 )
 
@@ -200,7 +207,8 @@ _BAD_NAME_RE = re.compile(
 _REJECT_SUBSTR_RE = re.compile(
     r'\b(calculator|eligibility\s+check|comparison|activate|activation|'
     r'apply\s+now|know\s+more|click\s+here|apply\s+for\b|'
-    r'report\s+(?:&|and)?\s*block|lost\s+or\s+stolen|quickly\b)\b',
+    r'report\s+(?:&|and)?\s*block|lost\s+or\s+stolen|quickly\b)\b|'
+    r'\bvs\.?\s+(?:debit|credit|bnpl|upi|prepaid)\b',
     re.I,
 )
 
@@ -211,6 +219,8 @@ def _is_valid_card_name(name: str) -> bool:
     if len(name) > 100:       # SEO titles are always long (>100 chars)
         return False
     if '?' in name:           # activation prompts, FAQ entries
+        return False
+    if "://" in name or name.startswith("//"):  # URL stored as card name
         return False
     if _BAD_NAME_RE.match(name):
         return False
