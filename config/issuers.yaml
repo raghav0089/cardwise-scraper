@@ -12,12 +12,9 @@ issuers:
     # Sitemap gives all card product pages directly — avoids JS-rendered listing pages
     sitemap_url: "https://www.hdfc.bank.in/sitemap.xml"
     list_urls:
-      # Kept as supplementary listing pages (pre-fetched content fed to LLM)
+      # hdfc.bank.in is the canonical domain (hdfcbank.com redirects here)
       - https://www.hdfc.bank.in/credit-cards
       - https://www.hdfc.bank.in/debit-cards
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards
-      - https://www.hdfcbank.com/personal/pay/cards/debit-cards
-      - https://www.hdfcbank.com/personal/pay/cards/business-credit-card
     # Matches individual card product pages (2-segment paths only, e.g. /credit-cards/<slug>)
     detail_link_pattern: "^https://www\\.hdfc\\.bank\\.in/(credit|debit)-cards/[a-z0-9][a-z0-9-]+-card$"
 
@@ -26,8 +23,6 @@ issuers:
     type: bank
     list_urls:
       - https://www.icici.bank.in/personal-banking/cards/credit-card
-      # Old icicibank.com listing page — co-brand links now on icici.bank.in (cross-site, blocked by _same_site)
-      # icici.bank.in is the new canonical domain for all ICICI card product pages
     detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/[a-z]"
 
   - id: axis
@@ -57,11 +52,12 @@ issuers:
   - id: idfc_first
     name: IDFC FIRST Bank
     type: bank
-    sitemap_url: "https://www.idfcfirstbank.com/sitemap.xml"
+    # idfcfirst.bank.in is the canonical domain (idfcfirstbank.com redirects here)
+    sitemap_url: "https://www.idfcfirst.bank.in/sitemap.xml"
     list_urls:
-      - https://www.idfcfirstbank.com/credit-card
-      # Note: /debit-card returns 404; IDFC FIRST focuses on credit cards
-    detail_link_pattern: "idfcfirstbank\\.com/credit-card/[a-z]"
+      - https://www.idfcfirst.bank.in/credit-card
+      - https://www.idfcfirst.bank.in/personal-banking/payments/cards/debit-card
+    detail_link_pattern: "idfcfirst\\.bank\\.in/(credit-card|personal-banking/payments/cards)/[a-z]"
 
   - id: "yes_bank"
     name: YES Bank
@@ -93,7 +89,6 @@ issuers:
     name: Standard Chartered India
     type: bank
     list_urls:
-      # New domain (sc.bank.in)
       - https://www.sc.bank.in/credit-cards/
       - https://www.sc.bank.in/debit-cards/
     detail_link_pattern: "/credit-cards/[a-z]|/debit-cards/[a-z]"
@@ -108,13 +103,15 @@ issuers:
     name: IDBI Bank
     type: bank
     list_urls:
-      - https://www.idbibank.in/credit-card.aspx
+      # idbi.bank.in is the canonical domain (idbibank.in redirects here)
+      - https://www.idbi.bank.in/credit-card.aspx
 
   - id: federal
     name: Federal Bank
     type: bank
     list_urls:
-      - https://www.federalbank.co.in/credit-cards
+      # federal.bank.in is the canonical domain (federalbank.co.in redirects here)
+      - https://www.federal.bank.in/credit-cards
 
   - id: au_sfb
     name: AU Small Finance Bank
@@ -126,16 +123,17 @@ issuers:
     name: Bandhan Bank
     type: bank
     list_urls:
-      - https://www.bandhanbank.com/personal/cards/credit-card
-      - https://www.bandhanbank.com/personal/cards/debit-card
+      # Credit cards live on a dedicated subdomain; debit cards on the main domain
+      - https://creditcards.bandhan.bank.in/
+      - https://bandhan.bank.in/personal/debit-card
 
   - id: south_indian
     name: South Indian Bank
     type: bank
     list_urls:
-      # FIX: Replaced explicit asset node id with clean directory listing index
-      - https://www.southindianbank.com/personal-banking/cards/credit-cards
-      - https://www.southindianbank.com/personal-banking/cards/debit-cards
+      # southindianbank.bank.in is canonical; path is /personal/cards/ (not /personal-banking/cards/)
+      - https://www.southindianbank.bank.in/personal/cards/credit-card
+      - https://www.southindianbank.bank.in/personal/cards/debit-card
 
   - id: karur_vysya
     name: Karur Vysya Bank
@@ -150,18 +148,18 @@ issuers:
     name: Bank of Baroda (BOBCARD)
     type: bank
     list_urls:
-      - https://www.bobcard.co.in/credit-card-types        # primary — bobfinancial.com is defunct
+      - https://www.bobcard.co.in/credit-card-types
       - https://bankofbaroda.bank.in/digital-products/cards/credit-cards
     detail_link_pattern: "/credit-card"
 
-
   - id: bajaj
     name: Bajaj Finserv
-    type: bank
-    list_urls:
-      - https://www.bajajfinserv.in/credit-card
-      - https://www.bajajfinserv.in/credit-card-apply-online
-    detail_link_pattern: "/credit-card"
+    type: prepaid
+    detail_urls:
+      # RBL SuperCard partnership ended Nov 2024; DBS SuperCard ended Jun 2026
+      # Only remaining card product is the Insta EMI Card (prepaid loan card)
+      - https://www.bajajfinserv.in/insta-emi-card
+    detail_link_pattern: "/insta-emi"
 
   - id: pnb
     name: PNB / PNB Cards
@@ -176,7 +174,7 @@ issuers:
   - id: canara
     name: Canara Bank
     type: bank
-    list_urls:
+    detail_urls:
       - https://www.canarabank.bank.in/pages/exclusive-credit-card-offers
       - https://www.canarabank.bank.in/pages/exclusive-debit-card-offers
 
@@ -184,7 +182,8 @@ issuers:
     name: Union Bank of India
     type: bank
     list_urls:
-      - https://www.unionbankofindia.co.in/english/Credit-Cards.aspx
+      # unionbankofindia.bank.in is the canonical domain
+      - https://www.unionbankofindia.bank.in/english/Credit-Cards.aspx
 
   - id: indian_bank
     name: Indian Bank
@@ -199,12 +198,6 @@ issuers:
     list_urls:
       - https://www.americanexpress.com/in/credit-cards/
 
-  - id: diners  # issued under HDFC in India; listed separately for discovery
-    name: Diners Club India
-    type: network
-    list_urls:
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/diners-club
-
   # ---------- Neobanks / fintech co-brand issuers ----------
   - id: onecard
     name: OneCard (FPL Technologies)
@@ -216,22 +209,25 @@ issuers:
     name: CRED
     type: neobank
     list_urls:
-      - https://cred.club/cred-cards
-      - https://cred.club/credit-cards
+      # CRED IndusInd Bank RuPay Credit Card (invite-only, launched Sep 2025)
+      - https://cred.club/card
 
   - id: jupiter
     name: Jupiter
     type: neobank
-    list_urls:
-      - https://jupiter.money/edge-csb-bank-rupay-credit-card/
-      - https://jupiter.money/
+    detail_urls:
+      # Federal Bank Visa card discontinued Jan 2026; CSB Bank RuPay cards are live
+      - https://jupiter.money/edge-csb-rupay-credit-card/
+      - https://jupiter.money/edge-plus-upi-rupay-credit-card/
 
   - id: fi
     name: Fi Money
     type: neobank
     list_urls:
-      - https://fi.money/credit-cards
-      - https://fi.money/features/debit-card
+      # MagniFi Federal Fi Credit Card discontinued March 20, 2026
+      # Fi no longer issues new savings accounts; debit card page also dead
+      # Keeping homepage only — no active card product pages remain
+      - https://fi.money/
 
   - id: niyo
     name: Niyo
@@ -243,7 +239,8 @@ issuers:
     name: slice (North East SFB)
     type: neobank
     list_urls:
-      - https://www.sliceit.com/
+      # slice.bank.in is the canonical domain (sliceit.com redirects here)
+      - https://slice.bank.in/
 
   - id: uni
     name: Uni Cards
@@ -260,16 +257,16 @@ issuers:
   - id: super_money
     name: Super.money (Flipkart)
     type: neobank
-    list_urls:
-      - https://super.money/
-      - https://super.money/credit-card
+    detail_urls:
+      # /card-partners lists all 3 active cards (Axis Bank, Utkarsh SFB, Kotak811)
+      - https://super.money/card-partners
 
   - id: paytm
     name: Paytm
     type: neobank
     list_urls:
-      - https://paytm.com/credit-card
-      - https://business.paytm.com/credit-card
+      # HDFC and SBI co-branded cards still active; Paytm also acts as cards marketplace
+      - https://paytm.com/loans-credit-cards/credit-cards/
 
   - id: zaggle
     name: Zaggle
@@ -286,7 +283,7 @@ issuers:
   - id: razorpayx
     name: RazorpayX
     type: neobank
-    list_urls:
+    detail_urls:
       - https://razorpay.com/x/corporate-cards/
 
   - id: karbon
@@ -313,16 +310,16 @@ issuers:
     name: Tata Neu (HDFC co-brand)
     type: cobrand
     list_urls:
+      # /tata-neu-card is 404 as of 2026-06-15
       - https://www.tataneu.com/creditcard/
-      - https://www.tataneu.com/tata-neu-card
       - https://www.hdfc.bank.in/credit-cards/tata-neu-infinity-hdfc-bank-credit-card
       - https://www.hdfc.bank.in/credit-cards/tata-neu-plus-hdfc-bank-credit-card
-    detail_link_pattern: "/credit-cards/[a-z]|/creditcard|/tata-neu-card"
+    detail_link_pattern: "/credit-cards/[a-z]|/creditcard"
 
   - id: flipkart_axis
     name: Flipkart Axis
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.axis.bank.in/cards/credit-card/flipkart-axisbank-credit-card
       - https://www.axis.bank.in/cards/credit-card/flipkart-axis-bank-super-elite-credit-card
     detail_link_pattern: "axis\\.bank\\.in/cards/credit-card/"
@@ -330,32 +327,23 @@ issuers:
   - id: amazon_pay_icici
     name: Amazon Pay ICICI
     type: cobrand
-    list_urls:
-      - https://www.amazon.in/amazonpay/icicibank/creditcard
+    detail_urls:
+      # amazon.in/amazonpay/icicibank/creditcard is 404 as of 2026-06-15
       - https://www.icici.bank.in/personal-banking/cards/credit-card/amazon-pay-credit-card
     detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/"
 
   - id: myntra_kotak
     name: Myntra Kotak
     type: cobrand
-    list_urls:
+    detail_urls:
       # Myntra Kotak card was discontinued; PVR INOX Kotak is the current entertainment card
       - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/pvr-inox-kotak-credit-card.html
-
-  - id: swiggy_hdfc
-    name: Swiggy HDFC
-    type: cobrand
-    list_urls:
-      - https://www.hdfc.bank.in/credit-cards/swiggy-hdfc-bank-credit-card
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/swiggy-hdfc-bank-credit-card
 
   - id: airtel_axis
     name: Airtel Axis Bank
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.axis.bank.in/cards/credit-card/airtel-axis-bank-credit-card
-      # Already discovered via Axis sitemap — kept here for explicit coverage
-
 
   - id: unity_sfb
     name: Unity Small Finance Bank (Roar Bank)
@@ -368,35 +356,34 @@ issuers:
   - id: indianoil_axis
     name: IndianOil Axis Bank
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.axis.bank.in/cards/credit-card/indianoil-axis-bank-credit-card
       - https://www.axis.bank.in/cards/credit-card/indianoil-premium-credit-card
-      # Also available via Axis sitemap
 
   - id: swiggy_axis  # separate from Swiggy HDFC — different card, different issuer
     name: Swiggy Axis Bank
     type: cobrand
-    list_urls:
-      - https://www.axis.bank.in/cards/credit-card/axis-bank-ace-credit-card  # ACE covers Swiggy cashback; dedicated Swiggy card was discontinued
+    detail_urls:
+      - https://www.axis.bank.in/cards/credit-card/axis-bank-ace-credit-card
 
   - id: bpcl_sbi
     name: BPCL SBI Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.sbicard.com/en/personal/credit-cards/bpcl-sbi-card.html
       - https://www.sbicard.com/en/personal/credit-cards/bpcl-sbi-card-octane.html
 
   - id: irctc_sbi
     name: IRCTC SBI Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.sbicard.com/en/personal/credit-cards/irctc-sbi-platinum-card.html
       - https://www.sbicard.com/en/personal/credit-cards/irctc-premier-card.html
 
   - id: ola_sbi
     name: OLA SBI Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.sbicard.com/en/personal/credit-cards/ola-money-sbi-card.html
 
   # ---------- Forex / transit / prepaid ----------
@@ -445,8 +432,9 @@ issuers:
     name: Indian Overseas Bank
     type: bank
     list_urls:
-      - https://www.iob.bank.in/en/credit-card-offers
-      - https://www.iob.bank.in/en/debit-cards
+      # Note: /en/debit-cards (plural) is 404 — correct URL is /en/debit-card (singular)
+      - https://www.iob.bank.in/en/Credit-Card
+      - https://www.iob.bank.in/en/debit-card
 
   - id: uco_bank
     name: UCO Bank
@@ -460,7 +448,8 @@ issuers:
     type: bank
     list_urls:
       - https://punjabandsind.bank.in/content/credit-cards
-      - https://punjabandsind.bank.in/content/debit-cards
+      # /content/debit-cards (plural) is 404; working URL is /content/psb-cards
+      - https://punjabandsind.bank.in/content/psb-cards
 
   # ---------- Private banks (additional) ----------
   - id: karnataka_bank
@@ -474,7 +463,7 @@ issuers:
     name: City Union Bank
     type: bank
     list_urls:
-      - https://www.cityunionbank.com/cub-credit-cards-for-individuals
+      # /cub-credit-cards-for-individuals redirects to /creditcard
       - https://www.cityunionbank.com/creditcard
 
   - id: dcb_bank
@@ -492,7 +481,7 @@ issuers:
   - id: saraswat_bank
     name: Saraswat Bank
     type: bank
-    list_urls:
+    detail_urls:
       - https://www.saraswat.bank.in/navigation.aspx?id=Credit-Cards
 
   - id: jk_bank
@@ -544,76 +533,28 @@ issuers:
   - id: utkarsh_sfb
     name: Utkarsh Small Finance Bank
     type: bank
-    list_urls:
+    detail_urls:
       - https://www.utkarsh.bank.in/personal/cards/credit-card/wish-credit-card
-
-  # ---------- HDFC co-brand / variant detail pages ----------
-  # These are app-only or partner-hosted cards not always visible in the main listing
-  - id: hdfc_pixel
-    name: HDFC PIXEL Credit Card
-    type: cobrand
-    list_urls:
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/pixel-play-credit-card
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/pixel-go-credit-card
-
-  - id: indianoil_hdfc
-    name: IndianOil HDFC Bank Credit Card
-    type: cobrand
-    list_urls:
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/indianoil-hdfc-bank-credit-card
-
-  - id: irctc_hdfc
-    name: IRCTC HDFC Bank RuPay Credit Card
-    type: cobrand
-    list_urls:
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/irctc-hdfc-bank-rupay-credit-card
-
-  - id: club_vistara_hdfc
-    name: Club Vistara HDFC Bank Credit Card
-    type: cobrand
-    list_urls:
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/club-vistara-hdfc-bank-credit-card
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/club-vistara-hdfc-bank-signature-credit-card
-
-  - id: marriott_bonvoy_hdfc
-    name: Marriott Bonvoy HDFC Bank Credit Card
-    type: cobrand
-    list_urls:
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/marriott-bonvoy-hdfc-bank-credit-card
-
-  - id: eazydiner_hdfc
-    name: EazyDiner HDFC Bank Credit Card
-    type: cobrand
-    list_urls:
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/eazydiner-hdfc-bank-credit-card
-
-  - id: phonepe_hdfc
-    name: PhonePe HDFC Bank Credit Card
-    type: cobrand
-    list_urls:
-      - https://www.hdfc.bank.in/credit-cards/phonepe-hdfc-bank-ultimo-credit-card
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/phonepe-hdfc-bank-ultimo-credit-card
-      - https://www.hdfcbank.com/personal/pay/cards/credit-cards/phonepe-hdfc-bank-uno-credit-card
 
   # ---------- Additional SBI Card co-brands ----------
   - id: apollo_sbi
     name: Apollo SBI Card SELECT
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.sbicard.com/en/personal/credit-cards/apollo-sbi-card-select.html
       - https://www.sbicard.com/en/personal/credit-cards/apollo-sbi-card.html
 
   - id: club_vistara_sbi
     name: Club Vistara SBI Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.sbicard.com/en/personal/credit-cards/club-vistara-sbi-card.html
       - https://www.sbicard.com/en/personal/credit-cards/club-vistara-sbi-card-prime.html
 
   - id: air_india_sbi
     name: Air India SBI Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.sbicard.com/en/personal/credit-cards/air-india-sbi-platinum-card.html
       - https://www.sbicard.com/en/personal/credit-cards/air-india-sbi-signature-card.html
 
@@ -629,8 +570,9 @@ issuers:
   - id: icici_makemytrip
     name: MakeMyTrip ICICI Bank Credit Card
     type: cobrand
-    list_urls:
-      - https://www.icici.bank.in/personal-banking/cards/credit-card/makemytrip/makemytrip-icici-credit-card
+    detail_urls:
+      # makemytrip-icici-credit-card slug was renamed to makemytrip-icici-bank-credit-card
+      - https://www.icici.bank.in/personal-banking/cards/credit-card/makemytrip/makemytrip-icici-bank-credit-card
       - https://www.icici.bank.in/personal-banking/cards/credit-card/makemytrip/signature-credit-card
       - https://www.icici.bank.in/personal-banking/cards/credit-card/makemytrip/platinum-credit-card
     detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/"
@@ -644,14 +586,14 @@ issuers:
   - id: times_black_icici
     name: Times Black ICICI Bank Credit Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.icici.bank.in/personal-banking/cards/credit-card/times-black-icici-credit-card
     detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/"
 
   - id: icici_imobile_payback
     name: ICICI Bank Coral & Premium Cards
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.icici.bank.in/personal-banking/cards/credit-card/coral-credit-card
       - https://www.icici.bank.in/personal-banking/cards/credit-card/rubyx-credit-card
       - https://www.icici.bank.in/personal-banking/cards/credit-card/sapphiro-card
@@ -663,7 +605,7 @@ issuers:
   - id: club_vistara_axis
     name: Club Vistara Axis Bank Credit Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.axis.bank.in/cards/credit-card/axis-bank-vistara-credit-card
       - https://www.axis.bank.in/cards/credit-card/axis-bank-vistara-signature-credit-card
       - https://www.axis.bank.in/cards/credit-card/axis-bank-vistara-infinite-credit-card
@@ -671,7 +613,7 @@ issuers:
   - id: samsung_axis
     name: Samsung Axis Bank Credit Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.axis.bank.in/cards/credit-card/samsung-axis-bank-infinite-credit-card
       - https://www.axis.bank.in/cards/credit-card/samsung-axis-bank-signature-credit-card
 
@@ -679,40 +621,43 @@ issuers:
   - id: club_vistara_indusind
     name: Club Vistara IndusInd Bank Credit Card
     type: cobrand
-    list_urls:
-      - https://www.indusind.bank.in/in/en/personal/cards/credit-card/club-vistara-indusind-bank-credit-card.html
+    # Page redirects to 404 — Club Vistara cards discontinued after Air India merger (2026-06-15)
+    list_urls: []
 
   - id: eazydiner_indusind
     name: EazyDiner IndusInd Bank Credit Card
     type: cobrand
-    list_urls:
-      - https://www.indusind.bank.in/in/en/personal/cards/credit-card/eazydiner-indusind-bank-credit-card.html
+    detail_urls:
+      # Card is active (devalued from Jul 2025 but not discontinued)
+      - https://www.indusind.bank.in/in/en/personal/cards/credit-card/eazydiner-credit-card.html
+      - https://www.indusind.bank.in/in/en/personal/cards/credit-card/eazydiner-platinum-credit-card.html
 
   # ---------- Additional Kotak co-brands ----------
   - id: indigo_kotak
     name: IndiGo Kotak Bank Credit Card
     type: cobrand
-    list_urls:
+    detail_urls:
+      # indigo-kotak-credit-card.html and indigo-kotak-xl-credit-card.html are 404 (discontinued)
       - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-credit-card.html
-      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-kotak-credit-card.html
-      - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-kotak-xl-credit-card.html
       - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/indigo-xl-credit-card.html
 
   - id: pvr_kotak
     name: PVR INOX Kotak Credit Card
     type: cobrand
-    list_urls:
+    detail_urls:
       - https://www.kotak.bank.in/en/personal-banking/cards/credit-cards/pvr-inox-kotak-credit-card.html
 
   # ---------- BOBCARD premium variants ----------
   - id: bobcard_premium
-    name: BOBCARD Premium Cards (Eterna / Tiitan / Swag)
+    name: BOBCARD Premium Cards
     type: cobrand
     list_urls:
+      # tiitan + swag confirmed 404; all others below are active as of 2026-06-15
       - https://www.bobcard.co.in/credit-card-types/eterna
-      - https://www.bobcard.co.in/credit-card-types/tiitan
-      - https://www.bobcard.co.in/credit-card-types/swag
+      - https://www.bobcard.co.in/credit-card-types/premier
+      - https://www.bobcard.co.in/credit-card-types/tiara
       - https://www.bobcard.co.in/credit-card-types/prime
+      - https://www.bobcard.co.in/credit-card-types/bobcard-etihad-guest-premium
 
   # ---------- Other fintechs ----------
   - id: stashfin
@@ -726,3 +671,77 @@ issuers:
     type: neobank
     list_urls:
       - https://www.paisabazaar.com/stepupcard/
+
+  # ---------- Fibe (EarlySalary) Axis Bank ----------
+  - id: fibe_axis
+    name: Fibe Axis Bank Credit Card
+    type: neobank
+    detail_urls:
+      # India's first numberless credit card; lifetime free RuPay
+      - https://www.fibe.in/credit-card/fibe-axis-bank-credit-card/
+      - https://www.axis.bank.in/cards/credit-card/fibe-axis-bank-credit-card
+
+  # ---------- FREO / Vivifi (YES Bank co-brand) ----------
+  - id: freo_yes
+    name: FREO YES Bank Credit Card
+    type: neobank
+    detail_urls:
+      # YES Bank is the issuer; FREO (formerly MoneyTap) is the partner
+      - https://www.yes.bank.in/personal-banking/yes-individual/cards/credit-cards/freo-credit-card
+      - https://freo.money/credit/credit-card-eligibility/
+
+  # ---------- Small Finance Banks (additional) ----------
+  - id: ujjivan_sfb
+    name: Ujjivan Small Finance Bank
+    type: bank
+    list_urls:
+      # No credit card product page currently; debit cards are live
+      - https://www.ujjivansfb.bank.in/cards/debit-cards
+
+  - id: tmb
+    name: Tamilnad Mercantile Bank
+    type: bank
+    list_urls:
+      - https://www.tmb.bank.in/pages/Credit-cards
+
+  - id: shivalik_sfb
+    name: Shivalik Small Finance Bank
+    type: bank
+    list_urls:
+      # No credit card product; debit cards only
+      - https://shivalikbank.com/digital-services/debit-card/
+
+  - id: capital_sfb
+    name: Capital Small Finance Bank
+    type: bank
+    list_urls:
+      # No credit card product; debit cards only
+      - https://www.capital.bank.in/debit-cards
+
+  - id: nainital_bank
+    name: Nainital Bank
+    type: bank
+    list_urls:
+      - https://www.nainitalbank.bank.in/english/atm.aspx
+
+  # ---------- Payments banks ----------
+  - id: airtel_payments_bank
+    name: Airtel Payments Bank
+    type: prepaid
+    list_urls:
+      # NCMC-enabled RuPay debit + prepaid cards
+      - https://www.airtelpayments.bank.in/products/cards
+
+  - id: fino_payments_bank
+    name: FINO Payments Bank
+    type: prepaid
+    list_urls:
+      # Platinum RuPay debit + corporate prepaid cards
+      - https://www.fino.bank.in/cards
+
+  - id: ippb
+    name: India Post Payments Bank (IPPB)
+    type: prepaid
+    detail_urls:
+      # RuPay Virtual Debit Card
+      - https://ippbonline.bank.in/web/ippb/virtual-debit-card

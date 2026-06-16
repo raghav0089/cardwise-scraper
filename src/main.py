@@ -13,6 +13,7 @@ from .discover import discover_candidate_urls
 from .extract import extract_cards
 from .normalize import ensure_card_id, stamp, dedupe
 from . import store
+from .banks import get_extractor as _get_bank_extractor
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s :: %(message)s")
@@ -45,10 +46,18 @@ _SKIP_SEGS = frozenset({
     "sitemap", "legal", "press", "support", "help", "download", "lounge",
     "cancellation", "referral", "experience", "calculator", "festive",
     "offers", "offer", "app", "careers", "career",
+    # Static asset paths (images, fonts, scripts, etc.)
+    "static", "static-resources", "static-pages", "img", "images", "assets",
+    "fonts", "icons", "media", "svg",
+    # Non-product helper pages
+    "demo-videos", "demo-video",
+    # Tracking / apply-redirect paths (e.g. sbicard.com /sprint/c/*)
+    "sprint",
 })
 # Sub-string match within a segment (catches compound names like terms-and-conditions)
 _SKIP_SEG_RE = re.compile(
-    r"emi|terms|fee|charge|privacy|personal-loan|bill-pay|"
+    # Use \bemi\b so we don't accidentally block "premier", "premium", etc.
+    r"\bemi\b|terms|fee|charge|privacy|personal-loan|bill-pay|"
     r"customer-care|negative-balance|do-not-call|credit-builder|"
     r"credit-card-service|different-type|top-\d|lounge-access|"
     r"zero-forex|best-lifetime|best-international|best-secured|"
@@ -59,7 +68,15 @@ _SKIP_SEG_RE = re.compile(
     r"credit-score|cardmember-agreement|"
     # Program/landing pages that are not individual card products
     r"referral|pre-approved-credit|lifetime-free-credit|"
-    r"credit-card-against|best-credit-card",
+    r"credit-card-against|best-credit-card|"
+    # Utility / non-product pages
+    r"apply-form|card-payment|network-guide|list-of-bc|"
+    r"pin-change|generate.*pin|ways-to-generate|activation-credit|"
+    # Informational / article pages (not card product pages)
+    r"settlement|balance-transfer|balance-conversion|"
+    r"paying-utility|utility-bill|what-is-upi|"
+    r"maximise.*offer|bogo|fuel-surcharge|"
+    r"income-tax|save.*dining|plan-your-trip",
     re.IGNORECASE,
 )
 _ALLOWED_DISCOVERY_DOMAINS = frozenset({
@@ -137,6 +154,10 @@ def fetch_page(row: dict) -> dict | None:
     if not _should_fetch(url, is_discovery=is_discovery):
         log.debug("pre-filter skip: %s", url)
         return None
+    bank_ext = _get_bank_extractor(row.get("issuer_id"))
+    if bank_ext and bank_ext.skip_url(url):
+        log.debug("bank-specific skip (%s): %s", row.get("issuer_id"), url)
+        return None
 
     # Listing pages carry pre-fetched HTML from the URL-gather phase — reuse it
     prefetched = row.get("prefetched_html", "")
@@ -199,7 +220,10 @@ _BAD_NAME_RE = re.compile(
     r'pin\b|block|closur|application|apply|vs\b|against\b|bill\s+pay)|'
     # Descriptive/educational headings that sneak "card" in
     r'understanding\s|outstanding\s+amount|instant\s+emi|below\s+are\s|'
-    r'type\s+of\s+(?:credit|debit)|difference\s+between|what\s+is\s+credit)',
+    r'type\s+of\s+(?:credit|debit)|difference\s+between|what\s+is\s+credit|'
+    # SEO page-title patterns that are not product names
+    r'best\s+credit\s+card|make\s+your\s|track\s+your\s|instant\s+and\s+easy|'
+    r'list\s+of\s+bc|list\s+of\s+business)',
     re.I,
 )
 
@@ -207,7 +231,8 @@ _BAD_NAME_RE = re.compile(
 _REJECT_SUBSTR_RE = re.compile(
     r'\b(calculator|eligibility\s+check|comparison|activate|activation|'
     r'apply\s+now|know\s+more|click\s+here|apply\s+for\b|'
-    r'report\s+(?:&|and)?\s*block|lost\s+or\s+stolen|quickly\b)\b|'
+    r'report\s+(?:&|and)?\s*block|lost\s+or\s+stolen|quickly\b|'
+    r'availability\s+guide|ways\s+to\s+generate|payments?\s+instantly)\b|'
     r'\bvs\.?\s+(?:debit|credit|bnpl|upi|prepaid)\b',
     re.I,
 )
@@ -288,8 +313,14 @@ def process_page(page: dict) -> list[dict]:
             log.info("rejected bad card_name %r from %s", name, page["source_url"])
             continue
         c["raw_text_sha256"] = page["sha"]
-        c.setdefault("issuer_id",   page.get("issuer_id"))
-        c.setdefault("issuer_name", page.get("issuer_name"))
+        # Always trust the configured issuer from our YAML, not whatever the LLM returns.
+        # LLMs hallucinate wrong bank names when a listing page shows competitor card ads.
+        if page.get("issuer_id"):
+            c["issuer_id"] = page["issuer_id"]
+        if page.get("issuer_name"):
+            c["issuer_name"] = page["issuer_name"]
+        c.setdefault("issuer_id",   None)
+        c.setdefault("issuer_name", None)
         c = stamp(ensure_card_id(c))
         existing = store.get_existing(c["card_id"])
         if existing:

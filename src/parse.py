@@ -78,14 +78,29 @@ def _ctx(md: str, m: re.Match, before: int = 60, after: int = 200) -> str:
 _JINA_HEADER_RE = re.compile(
     r"^(?:Title|URL Source|Markdown Content)\s*:[^\n]*\n?", re.I | re.MULTILINE)
 
-def _clean_text(text: str) -> str:
-    """Strip Jina headers, URLs, markdown noise from a display snippet."""
+def _clean_text(text: str, limit: int = 250) -> str:
+    """Strip Jina headers, images, URLs, markdown noise from a display snippet."""
     text = _JINA_HEADER_RE.sub("", text)
+    text = re.sub(r'!\[[^\]\n]*\]?(?:\([^)]*\))?', ' ', text)  # ![alt](url) image, closed or not
     text = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', text)   # [label](url) → label
+    # Orphan markdown fragments left by snippet-window truncation
+    text = re.sub(r'\[[^\]]*$', ' ', text)                 # trailing unclosed [label
+    text = re.sub(r'\]\([^)]*\)?', ' ', text)              # orphan ](url) or ](url
+    text = re.sub(r'\S*\.(?:pdf|html|aspx|php|jpg|png|webp)\)?', ' ', text, flags=re.I)  # orphan file refs
+    text = re.sub(r'\(\s*https?\S*\)?', ' ', text)         # orphan (url / (url)
+    text = re.sub(r'^\s*\S{0,12}\)\s+', '', text)          # leading "pdf) " orphan from prev link
+    text = re.sub(r'\(opens?\s+in\s+a\s+new\s+tab\)?', ' ', text, flags=re.I)
+    text = re.sub(r'\b(?:click\s+here|view\s+(?:more|less|details)|know\s+more|'
+                  r'read\s+more|learn\s+more)\b', ' ', text, flags=re.I)
     text = re.sub(r'https?://\S+', '', text)                # bare URLs
     text = re.sub(r'[*_`#|]', ' ', text)                   # markdown punctuation
     text = re.sub(r'\s+', ' ', text).strip()
-    return text[:250]
+    text = re.sub(r'^[\s:>\-–—]+', '', text)               # leading list/heading residue
+    if len(text) > limit:                                  # cut at a word boundary
+        cut = text[:limit]
+        sp  = cut.rfind(" ")
+        text = (cut[:sp] if sp > limit * 0.6 else cut).rstrip()
+    return text.strip(" :-–—[(")
 
 _GENERIC_PREFIX_RE = re.compile(
     r"^(?:apply\s+for|get|best|find|compare|about|explore|discover|learn)\s+", re.I)
@@ -142,6 +157,15 @@ def _clean_card_name(raw: str) -> str:
         r'\s+with\s+(?:unlimited|exclusive|unmatched|extraordinary|great|premium|amazing)\s+'
         r'(?:benefits?|offers?|rewards?|privileges?)\s*$',
         '', val, flags=re.I).strip()
+    # Truncate SEO tails that follow the card-type keyword:
+    # "Avios Visa Infinite Credit Card Online - Check Benefits & Rewards" → "Avios ... Credit Card"
+    m = re.match(
+        r'^(.*?\b(?:credit|debit|prepaid|forex)\s+card)\b\s+'
+        r'(?:online|apply|check|benefits?|rewards?|features?|eligibilit\w*|fees?|charges?|'
+        r'offers?|details?|now|today|—|-|\|)',
+        val, re.I)
+    if m and len(m.group(1)) >= 8:
+        val = m.group(1).strip()
     # Strip "in the [Industry/Market/Country]" SEO tail
     val = re.sub(r'\s+in\s+(?:the\s+)?(?:industry|market|country|world|india)\s*$', '', val, flags=re.I).strip()
     # Reject slug-like names (hyphens, no spaces) that Jina sometimes produces from link text
@@ -317,11 +341,16 @@ _INR_LAKH = r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(lakh|lac|crore|cr\b)?"
 # Fee amounts require ₹/rs/inr prefix — prevents reward multiplier numbers (4X, 2 Air Miles)
 # being captured as fees when the actual fee is "Nil" followed by reward descriptions.
 _INR_FEE = r"(?:₹|rs\.?\s*|inr\s*)([\d,]+(?:\.\d+)?)(?!\s*[xX%])"
+# Bridge between a fee label and its amount. Skips a parenthetical that may itself
+# contain digits ("(2nd Year Onwards)", "(1st year)") as a unit, but otherwise won't
+# cross loose digits — so it binds the amount belonging to *this* label. Lazy.
+_FEEBRIDGE = r"(?:\([^)\n]*\)|[^₹\d\n]){0,45}?"
 _FEE_PATS = [
     # Negative lookaheads prevent "fee reversal/waiver" phrasing from matching the actual fee field
-    ("joining_fee_inr",       re.compile(r"join(?:ing)?\s*(?:or\s+)?(?:renewal\s+)?(?:membership\s+)?fee(?!\s+(?:reversal|waiver|waived?))[^₹\d\n]{0,30}" + _INR_FEE, re.I)),
-    ("annual_fee_inr",        re.compile(r"annual\s*(?:fee|membership)(?!\s+(?:reversal|waiver|waived?))[^₹\d\n]{0,30}" + _INR_FEE, re.I)),
-    ("renewal_fee_inr",       re.compile(r"renewal\s*(?:membership\s+)?fee(?!\s+(?:reversal|waiver|waived?))[^₹\d\n]{0,30}" + _INR_FEE, re.I)),
+    # "Joining/Renewal Membership Fee" — allow "/" between Joining and Renewal
+    ("joining_fee_inr",       re.compile(r"join(?:ing)?[\s/]*(?:or\s+|renewal\s+)?(?:membership\s+)?fee(?!\s+(?:reversal|waiver|waived?))" + _FEEBRIDGE + _INR_FEE, re.I)),
+    ("annual_fee_inr",        re.compile(r"annual\s*(?:fee|membership)(?!\s+(?:reversal|waiver|waived?))" + _FEEBRIDGE + _INR_FEE, re.I)),
+    ("renewal_fee_inr",       re.compile(r"renewal\s*(?:membership\s+)?fee(?!\s+(?:reversal|waiver|waived?))" + _FEEBRIDGE + _INR_FEE, re.I)),
     # fee_waiver uses _INR_LAKH (2 groups) to handle "1 Lakh" amounts; "fee reversal" = fee waiver
     ("fee_waiver_spend_inr",  re.compile(
         r"(?:fee\s+waiver|fee\s+waived?|waived?\s+(?:on|by)\s+(?:annual\s+|spending\s+)?spend|"
@@ -333,6 +362,11 @@ _FEE_PATS = [
 ]
 _FUEL_RE = re.compile(r"fuel\s+surcharge\s+waiver[^.\n]{0,120}", re.I)
 _GST_RE  = re.compile(r"\+\s*gst|exclusive\s+of\s+gst|plus\s+applicable\s+taxes", re.I)
+# "Spend ₹2L or more in a year ... get your renewal fee waived" — amount precedes the waiver keyword
+_FEE_WAIVER_REV = re.compile(
+    r"(?:spend|spends?)\s+" + _INR_LAKH + r"[^.\n]{0,80}(?:fee\s+waiv|renewal\s+fee\s+waiv|annual\s+fee\s+waiv)",
+    re.I,
+)
 
 # Fields that use _INR_LAKH (2 groups: amount, suffix)
 _TWO_GROUP_FIELDS = frozenset({"fee_waiver_spend_inr"})
@@ -346,9 +380,20 @@ def _fees(md: str) -> dict:
                     suffix = m.group(2) or ""
                 except IndexError:
                     suffix = ""
-                out[key] = _num(m.group(1), suffix)
+                val = _num(m.group(1), suffix)
+                # fee_waiver_spend_inr should always be a meaningful spend amount (≥ ₹1000).
+                # Guard against list-item numbers like "1" matching the optional-₹ pattern.
+                if key == "fee_waiver_spend_inr" and val is not None and val < 1000:
+                    continue
+                out[key] = val
             else:
                 out[key] = _num(m.group(1))
+    # Reversed fee-waiver pattern ("Spend ₹2L or more ... fee waived") — fill if not found above
+    if "fee_waiver_spend_inr" not in out:
+        if m := _FEE_WAIVER_REV.search(md):
+            val = _num(m.group(1), m.group(2) or "")
+            if val is not None and val >= 1000:
+                out["fee_waiver_spend_inr"] = val
     if m := _FUEL_RE.search(md):
         out["fuel_surcharge_waiver"] = _clean_text(m.group(0))
     if _GST_RE.search(md):
@@ -382,6 +427,11 @@ _CURR_RE       = re.compile(
 _EXCL_RE       = re.compile(
     r"(?:no\s+rewards?|not\s+earn(?:ed)?|excluded?)\s+on\s+([\w\s,&/]+?)(?=[.\n]|$)", re.I)
 _REDEEM_RE     = re.compile(r"redeem[^\n]*?(?:for|at|against)\s+([\w\s,&/\-]+?)(?=[.\n])", re.I)
+# A genuine redemption destination mentions one of these.
+_REDEEM_SIG    = re.compile(
+    r"statement|cash\s*back|cashback|flight|hotel|travel|voucher|product|catalogue|"
+    r"amazon|smartbuy|gift|merchandise|airmiles|air\s+miles|points?\s+transfer|"
+    r"charity|fuel|recharge|bill", re.I)
 _EXPIRY_RE     = re.compile(r"(?:points?\s+(?:expire|valid)\s+for\s+)?(\d+)\s*months?\s+(?:from|of)", re.I)
 
 def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
@@ -396,9 +446,9 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
         pv = _KNOWN_POINT_VALUE[issuer_id]
         out["point_value_inr"] = pv
 
-    # Currency name
+    # Currency name (collapse any internal whitespace/newlines — "eDGE\nMiles" → "Edge Miles")
     if m := _CURR_RE.search(md):
-        out["currency"] = m.group(1).title()
+        out["currency"] = re.sub(r"\s+", " ", m.group(1)).strip().title()
     elif issuer_id and issuer_id in _ISSUER_CURRENCY:
         out["currency"] = _ISSUER_CURRENCY[issuer_id]
 
@@ -423,6 +473,11 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
         cat      = m.group(2).strip().rstrip(".,").strip()
         if not cat or len(cat) < 3 or len(cat) > 70 or cat.lower() in seen:
             continue
+        # Skip redemption cap lines ("Redeem up to 70% on travel bookings") —
+        # these state max % redeemable with points, not an earn rate
+        ctx_before = md[max(0, m.start() - 80) : m.start()]
+        if re.search(r"\bredeem\b", ctx_before, re.I):
+            continue
         seen.add(cat.lower())
         # look for cap in the next 120 chars
         cap_m = _CAP_RE.search(md, m.end(), m.end() + 120)
@@ -442,15 +497,42 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
                     "cap_inr": None, "notes": f"{mult}X points"})
 
     if acc:
-        out["accelerated"] = acc
+        # Deduplicate: drop an entry if same rate_pct and any key word in its category
+        # already appears in a kept entry (handles "5% on Amazon" vs "5% on leading brands - Amazon").
+        deduped: list[dict] = []
+        kept_tokens: list[tuple[float | None, set[str]]] = []  # (rate_pct, word_set)
+        stop = {"on", "at", "the", "a", "an", "and", "or", "of", "in", "for", "to",
+                "with", "across", "select", "all", "up"}
+        for entry in acc:
+            rate = entry.get("rate_pct")
+            words = {w.lower() for w in re.split(r"\W+", entry["category"]) if len(w) > 2} - stop
+            duplicate = any(
+                rate == kept_rate and bool(words & kept_words)
+                for kept_rate, kept_words in kept_tokens
+            )
+            if not duplicate:
+                deduped.append(entry)
+                kept_tokens.append((rate, words))
+        out["accelerated"] = deduped
 
     # Exclusions & redemption
     excl = [m.group(1).strip() for m in _EXCL_RE.finditer(md)]
     if excl:
         out["exclusions"] = excl
-    modes = [m.group(1).strip() for m in _REDEEM_RE.finditer(md)]
+    # A real redemption mode names a destination (statement, cashback, flights,
+    # vouchers, Amazon Pay, catalogue, etc.) — filter out prose like "the push of a button".
+    modes = []
+    for m in _REDEEM_RE.finditer(md):
+        mode = _clean_text(m.group(1)).strip().rstrip(".,")
+        if mode and _REDEEM_SIG.search(mode) and 3 <= len(mode) <= 60:
+            modes.append(mode)
     if modes:
-        out["redemption_modes"] = modes[:8]
+        # de-dup preserving order
+        seen_m, uniq_m = set(), []
+        for x in modes:
+            if x.lower() not in seen_m:
+                seen_m.add(x.lower()); uniq_m.append(x)
+        out["redemption_modes"] = uniq_m[:8]
     if m := _EXPIRY_RE.search(md):
         out["expiry_months"] = int(m.group(1))
 
@@ -464,11 +546,35 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
 _WELCOME_RE = re.compile(
     r"(?:welcome|joining)\s+(?:benefit|gift|bonus|offer)[s:]*\s*([^\n]{20,400})", re.I)
 
+# A welcome_benefit string is only meaningful if it quantifies something —
+# money, points, a voucher, a membership, etc. Used to drop vague LLM/markdown
+# fragments that merely contain the words "welcome benefit".
+_WB_VALUE_RE = re.compile(
+    r"₹|\brs\.?\s*\d|\binr\b|\d\s*%|\bpoints?\b|\bmiles?\b|\bcashback\b|\bvoucher|"
+    r"\bmembership\b|\bsubscription\b|\bgift\s+card\b|\bbonus\b|\bwaiv|\bfree\b|"
+    r"\breward|\bcoins?\b|\bnights?\b|\bstay\b|\bvalued?\s+at\b|\bworth\b",
+    re.I,
+)
+# A welcome_benefit string is junk if it is navigation / markdown / CTA noise
+# rather than an actual benefit description.
+_WB_JUNK_RE = re.compile(
+    r"https?://|\]\(|!\[|\bclick\s+here\b|\bapply\s+now\b|\bknow\s+more\b|"
+    r"\bread\s+more\b|\blearn\s+more\b|\bview\s+(?:all|more|details)\b|"
+    r"\bterms\s+(?:and|&)\s+conditions\b|\bt\s*&\s*c\b|\bskip\s+to\b|"
+    r"\bmain\s+menu\b|\bnavigation\b",
+    re.I,
+)
+
 def _welcome(md: str) -> Optional[str]:
     m = _WELCOME_RE.search(md)
     if not m:
         return None
-    return _clean_text(m.group(1))
+    val = _clean_text(m.group(1))
+    if not val or _WB_JUNK_RE.search(val):
+        return None
+    if not _WB_VALUE_RE.search(val) and len(val) < 30:
+        return None
+    return val
 
 
 # ─────────────────────────────────────────────────────────────
@@ -501,6 +607,9 @@ def _milestones(md: str) -> list:
 # ─────────────────────────────────────────────────────────────
 
 # "N domestic airport lounge" or "N lounge visits per quarter/year"
+# "Unlimited lounge access" — super-premium cards like Diners Club Black
+_LG_UNLIMITED = re.compile(r"\bunlimited\s+(?:airport\s+)?lounge\s+(?:visit|access)", re.I)
+
 _DOM_LG  = re.compile(
     r"(\d+)\s+(?:complimentary\s+)?(?:domestic\s+)?(?:airport\s+)?lounge"
     r"(?:\s+(?:visit|access|trip)s?)?(?:[^.\n]{0,40}domestic)?", re.I)
@@ -520,6 +629,10 @@ _GUEST   = re.compile(r"\bguest\b|complimentary\s+companion", re.I)
 
 def _lounge(md: str) -> dict:
     out: dict = {}
+
+    # Unlimited lounge (Diners Club Black, Infinia, etc.) — no per-visit count
+    if _LG_UNLIMITED.search(md):
+        out["unlimited"] = True
 
     if m := _DOM_LG.search(md):
         v = int(m.group(1))
@@ -587,7 +700,10 @@ def _partner_offers(md: str) -> list:
         for m in re.finditer(re.escape(partner), md, re.I):
             snippet = _ctx(md, m, before=80, after=250)
             if _OFFER_SIG.search(snippet):
-                offers.append({"partner": partner, "benefit": snippet})
+                benefit = _clean_text(snippet)
+                # Only keep if cleaning left a substantive, signal-bearing sentence
+                if benefit and len(benefit) >= 12 and _OFFER_SIG.search(benefit):
+                    offers.append({"partner": partner, "benefit": benefit})
                 break
     return offers
 
@@ -628,12 +744,37 @@ def _perks(md: str) -> list:
 # ─────────────────────────────────────────────────────────────
 
 _ELG_PATS = [
-    ("min_age",             re.compile(r"min(?:imum)?\s+age[^:\d]{0,10}(\d+)", re.I)),
-    ("max_age",             re.compile(r"max(?:imum)?\s+age[^:\d]{0,10}(\d+)", re.I)),
-    ("min_income_inr_year", re.compile(r"(?:min(?:imum)?\s+)?(?:annual\s+)?income[^₹\d\n]{0,30}" + _INR, re.I)),
+    ("min_age", re.compile(r"min(?:imum)?\s+age[^:\d]{0,10}(\d+)", re.I)),
+    ("max_age", re.compile(r"max(?:imum)?\s+age[^:\d]{0,10}(\d+)", re.I)),
 ]
 _SAL_RE  = re.compile(r"\bsalaried\b", re.I)
 _SELF_RE = re.compile(r"self.?employed|business\s+owner", re.I)
+# Income line, capturing whether it's monthly or annual and any lakh/crore suffix.
+# Matches "Net Monthly Income > ₹20,000", "Annual Income ₹6 Lakh", "ITR > ₹6 Lakh per annum".
+_INCOME_RE = re.compile(
+    r"(monthly|annual|per\s+annum|p\.?a\.?|itr|year)?\s*"
+    r"(?:net\s+|gross\s+)?income[^₹\d\n]{0,20}" + _INR_LAKH,
+    re.I,
+)
+_MONTHLY_CTX = re.compile(r"month", re.I)
+
+def _income_year(md: str) -> Optional[float]:
+    """Return minimum annual income in INR, converting monthly figures ×12."""
+    best: Optional[float] = None
+    for m in _INCOME_RE.finditer(md):
+        amount = _num(m.group(2), m.group(3) or "")
+        if amount is None or amount <= 0:
+            continue
+        # "income" with a bare number and no ₹ can be noise (e.g. credit score) — require
+        # either a unit suffix (lakh/crore) or a value that reads like real income.
+        window = md[max(0, m.start() - 25): m.end()]
+        if _MONTHLY_CTX.search(window) and "annum" not in window.lower():
+            amount *= 12
+        if amount < 50_000:        # below a plausible annual income floor → skip
+            continue
+        if best is None or amount < best:
+            best = amount
+    return best
 
 def _eligibility(md: str) -> dict:
     out: dict = {}
@@ -641,7 +782,9 @@ def _eligibility(md: str) -> dict:
         if m := pat.search(md):
             v = _num(m.group(1))
             if v is not None:
-                out[key] = int(v) if key.endswith("age") else v
+                out[key] = int(v)
+    if inc := _income_year(md):
+        out["min_income_inr_year"] = inc
     if _SAL_RE.search(md):  out["salaried"]      = True
     if _SELF_RE.search(md): out["self_employed"]  = True
     return out
@@ -711,8 +854,12 @@ def _parse_one(md: str, base: dict) -> Optional[dict]:
         raw = m.group(1).lower()
         card["network"] = _NET_NORM.get(raw, m.group(1).title())
 
+    # Search first 60% of the page for segment keywords, with markdown link text
+    # stripped — navigation menus list "[Premium & Super Premium Credit Card](url)"
+    # which would otherwise falsely trigger the super-premium classifier.
+    seg_md = re.sub(r'\[[^\]]{0,120}\]\([^)]*\)', '', md[: int(len(md) * 0.6)])
     for seg, pat in _SEG_RE.items():
-        if pat.search(md):
+        if pat.search(seg_md):
             card["segment"] = seg
             break
 

@@ -15,14 +15,20 @@ Returns None only if ALL providers are exhausted — caller should not mark
 the source as seen so it retries on the next daily run.
 """
 from __future__ import annotations
-import os, json, logging, time
+import os, json, logging, re, time  # re used for post-processing in extract_cards
 from pathlib import Path
 from jsonschema import Draft7Validator
-from .parse import parse_cards
+from .parse import parse_cards, _clean_card_name, _WB_JUNK_RE, _WB_VALUE_RE
+from .banks import get_extractor
 
 log = logging.getLogger(__name__)
 SCHEMA    = json.loads(Path("schema/card.schema.json").read_text())
 VALIDATOR = Draft7Validator(SCHEMA)
+
+# Paid cloud LLMs (Gemini / Groq / OpenAI) cost money. They are OFF by default
+# so a run can never incur charges. Local Ollama is always allowed (free).
+# Set ALLOW_PAID_LLM=1 to enable the paid fallback chain.
+ALLOW_PAID_LLM = os.getenv("ALLOW_PAID_LLM", "0") == "1"
 
 SYSTEM = """You extract Indian payment-card product details from web pages.
 
@@ -357,21 +363,27 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 _ollama_ok:  bool | None = None
 
 
-_OLLAMA_SYSTEM = """You are a JSON extraction API. Extract Indian credit/debit card data from the web page.
+# Grounded prompt — NO example values (small models copy example numbers verbatim)
+# and NO assistant prefill (it makes them regurgitate a plausible-but-fake card).
+# The instruction is purely about faithfully transcribing what the page states.
+_OLLAMA_SYSTEM = """You extract structured data about ONE Indian payment card from the web page text given to you.
 
-Your response MUST start with {"cards":[ and end with ]} — no other text.
+ABSOLUTE RULES:
+- Use ONLY facts written in the PAGE text. Never invent, guess, or recall a card from memory.
+- The card_name MUST be the product name that literally appears in the PAGE. If you cannot find a card name in the PAGE, return {"cards":[]}.
+- issuer_id and issuer_name MUST be exactly the ISSUER_ID_HINT and ISSUER_NAME_HINT given.
+- source_url MUST be exactly the SOURCE_URL given.
+- For any field not stated in the PAGE, use null (or [] for lists). Do not fill placeholders.
+- Output ONLY a JSON object, no prose.
 
-JSON structure (fill ALL fields from the page — null only if truly absent):
-{"cards":[{"card_id":"<issuer>__<name-slug>","card_name":"<official name>","issuer_id":"<ISSUER_ID_HINT>","issuer_name":"<ISSUER_NAME_HINT>","category":"credit|debit|prepaid","source_url":"<SOURCE_URL>","network":"Visa|Mastercard|RuPay|Amex|Diners|null","segment":"entry|mid|premium|super-premium|null","fees":{"joining_fee_inr":<number|null>,"annual_fee_inr":<number|null>,"renewal_fee_inr":<number|null>,"fee_waiver_spend_inr":<number|null>,"fx_markup_pct":<number|null>,"gst_extra":<true|false>},"rewards":{"base_rate_pct":<number|null>,"currency":"cashback|points|miles|null","point_value_inr":<number|null>,"accelerated":[{"category":"<dining|travel|grocery|fuel|online|etc>","rate_pct":<number>,"cap_inr":<number|null>,"notes":"<brands or conditions>"}],"redemption_modes":["<mode>"],"exclusions":["<category>"]},"milestones":[{"spend_inr":<number>,"reward":"<description>","value_inr":<number|null>,"period":"monthly|quarterly|annual|null"}],"welcome_benefit":"<text|null>","partner_offers":[{"partner":"<brand>","benefit":"<full offer text>"}],"lounge_access":{"domestic_visits_year":<int|null>,"international_visits_year":<int|null>,"guest_allowed":<bool|null>,"program":"<Priority Pass|DreamFolks|null>","spend_unlock_inr":<number|null>},"insurance":{"air_accident_inr":<number|null>,"lost_card_inr":<number|null>,"purchase_protection_inr":<number|null>,"travel_inr":<number|null>},"perks":[{"kind":"<golf|movie|dining|spa|lounge|fuel|concierge|etc>","value":"<description>"}],"eligibility":{"min_age":<int|null>,"max_age":<int|null>,"min_income_inr_year":<number|null>,"salaried":<bool|null>,"self_employed":<bool|null>},"apply_url":"<url|null>"}]}
+Output shape:
+{"cards":[{"card_name":string,"issuer_id":string,"issuer_name":string,"category":"credit|debit|prepaid|forex|business","source_url":string,"network":string|null,"segment":string|null,"fees":{"joining_fee_inr":number|null,"annual_fee_inr":number|null,"renewal_fee_inr":number|null,"fee_waiver_spend_inr":number|null,"fx_markup_pct":number|null,"gst_extra":boolean},"rewards":{"base_rate_pct":number|null,"currency":string|null,"point_value_inr":number|null,"accelerated":[{"category":string,"rate_pct":number,"cap_inr":number|null,"notes":string|null}],"redemption_modes":[string],"exclusions":[string]},"milestones":[{"spend_inr":number,"reward":string,"value_inr":number|null,"period":string|null}],"welcome_benefit":string|null,"partner_offers":[{"partner":string,"benefit":string}],"lounge_access":{"domestic_visits_year":number|null,"international_visits_year":number|null,"guest_allowed":boolean|null,"program":string|null,"spend_unlock_inr":number|null},"insurance":{"air_accident_inr":number|null,"lost_card_inr":number|null,"purchase_protection_inr":number|null,"travel_inr":number|null},"perks":[{"kind":string,"value":string}],"eligibility":{"min_age":number|null,"max_age":number|null,"min_income_inr_year":number|null,"salaried":boolean|null,"self_employed":boolean|null},"apply_url":string|null}]}
 
-Rules:
-- Read the page carefully. Extract ALL values present. Do NOT copy from examples.
-- DETAIL PAGE: 1 card only (the main product). LISTING PAGE: all products.
-- card_id = issuer_id + "__" + card name lowercased with hyphens"""
+All INR amounts are plain numbers (50000, not "₹50,000"). A LISTING PAGE may yield several cards; a DETAIL PAGE yields exactly one."""
 
 
 def _call_ollama(_system: str, user: str) -> str | None:
-    """Call local Ollama with a small-model-friendly prompt. Returns raw JSON or None."""
+    """Call local Ollama with a grounded prompt + JSON format. Returns raw JSON or None."""
     global _ollama_ok
 
     if _ollama_ok is False:
@@ -384,21 +396,17 @@ def _call_ollama(_system: str, user: str) -> str | None:
         return None
 
     try:
-        # Prefill the assistant response to force the model to start with {"cards":[
-        # This is the most reliable way to enforce a specific JSON structure with local models.
         resp = _ollama_lib.chat(
             model=OLLAMA_MODEL,
             messages=[
-                {"role": "system",    "content": _OLLAMA_SYSTEM},
-                {"role": "user",      "content": user},
-                {"role": "assistant", "content": '{"cards":['},
+                {"role": "system", "content": _OLLAMA_SYSTEM},
+                {"role": "user",   "content": user},
             ],
+            format="json",                 # constrained JSON output
             options={"temperature": 0},
         )
         _ollama_ok = True
-        # Ollama serializes the continuation with escaped quotes — unescape then prepend prefix.
-        continuation = resp.message.content.replace('\\"', '"').replace("\\'", "'")
-        return '{"cards":[' + continuation
+        return resp.message.content
     except Exception as e:
         msg = str(e)
         if "connection" in msg.lower() or "refused" in msg.lower() or "connect" in msg.lower() \
@@ -476,6 +484,37 @@ def _call_openai(system: str, user: str) -> str | None:
         return None
 
 
+# ── Anti-hallucination guard ──────────────────────────────────────────────────
+
+# Generic tokens that don't help prove a name came from the page.
+_NAME_GENERIC = frozenset({
+    "card", "credit", "debit", "prepaid", "forex", "the", "bank", "co", "branded",
+    "rupay", "visa", "mastercard", "amex", "diners", "and", "of", "plus",
+})
+
+def _name_grounded_in_page(name: str | None, md: str) -> bool:
+    """True if the card name's distinctive words actually appear in the page text.
+
+    Protects against small local models inventing a card that isn't on the page.
+    Requires that the meaningful (non-generic) tokens of the name are present in
+    the source markdown.
+    """
+    if not name:
+        return False
+    if not md:
+        return True   # nothing to check against — don't over-reject
+    md_low = md.lower()
+    tokens = [t for t in re.split(r"[^a-z0-9]+", name.lower())
+              if len(t) > 2 and t not in _NAME_GENERIC]
+    if not tokens:
+        # Name was entirely generic words ("Credit Card") — accept only if that exact
+        # phrase is present; otherwise it's not a real distinct product name.
+        return name.lower() in md_low
+    hits = sum(1 for t in tokens if t in md_low)
+    # Most distinctive tokens must be present (allow one OCR/spelling slip).
+    return hits >= max(1, len(tokens) - 1)
+
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def extract_cards(batch: list[dict]) -> list[dict] | None:
@@ -489,6 +528,14 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
     if not valid:
         return []
 
+    # Bank-specific extractor takes priority over generic rule-based + LLM pipeline
+    issuer_id = valid[0].get("issuer_id")
+    bank_ext  = get_extractor(issuer_id)
+    if bank_ext:
+        result = bank_ext.extract(valid)
+        log.info("extracted %d card(s) via %s bank extractor", len(result), issuer_id)
+        return result
+
     # Primary: rule-based parser — no API calls, always runs first
     rule_cards: list[dict] = []
     for p in valid:
@@ -498,16 +545,26 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
                  len(rule_cards), len(valid))
         return rule_cards
 
+    # Skip LLM fallback for listing pages: their individual detail URLs are already
+    # in the queue and will be scraped separately. Passing a listing page to the LLM
+    # produces hallucinated data mixing cards from multiple issuers.
+    if all(p.get("is_listing") for p in valid):
+        log.debug("listing page(s) produced no rule-based cards — skipping LLM")
+        return []
+
     # Fallback: LLM chain (Ollama → Gemini → Groq → OpenAI)
+    # Cap per-document length: small local models (qwen2.5:7b / llama3.2) degrade or
+    # return empty on very long contexts. The product info (name/fees/rewards) is
+    # almost always in the first part of the page; the tail is FAQs / T&C / footer.
+    max_chars = int(os.getenv("LLM_MAX_CHARS", "9000"))
     parts = []
     for i, p in enumerate(valid, 1):
         is_listing = p.get("is_listing", False)
         hint = "LISTING PAGE — extract ALL individual card products mentioned." \
                if is_listing else "DETAIL PAGE — extract the single card described."
-        # No truncation — nav/header/footer stripped by Jina so pages are compact.
-        # Listing pages (nav-stripped): ~5-8K chars for 20-30 cards.
-        # Detail pages (nav-stripped): ~3-6K chars with full fees/rewards/perks.
         content = p["markdown"]
+        if len(content) > max_chars:
+            content = content[:max_chars]
         parts.append(
             f"--- DOCUMENT {i} ---\n"
             f"SOURCE_URL: {p['source_url']}\n"
@@ -520,10 +577,16 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
     user_content = "\n\n".join(parts)
     provider     = "unknown"
 
-    # 0. Ollama — local, zero rate limits (skipped silently if not running)
+    # 0. Ollama — local, zero rate limits, FREE (skipped silently if not running)
     raw = _call_ollama(SYSTEM, user_content)
     if raw is not None:
         provider = "ollama"
+    elif not ALLOW_PAID_LLM:
+        # Paid cloud LLMs disabled — don't spend money. Return [] (not None) so the
+        # source is marked seen and we don't endlessly retry a page Ollama couldn't do.
+        log.info("no local LLM result and ALLOW_PAID_LLM=0 — skipping paid providers for %s",
+                 valid[0]["source_url"])
+        return []
     else:
         # 1. Gemini — free tier, 1M TPM (fastest cloud option)
         raw = _call_gemini(f"{SYSTEM}\n\n{user_content}")
@@ -554,9 +617,42 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
     for c in payload.get("cards") or []:
         src_url = c.get("source_url") or valid[0]["source_url"]
         page    = by_url.get(src_url, valid[0])
-        c.setdefault("issuer_id",   page.get("issuer_id"))
-        c.setdefault("issuer_name", page.get("issuer_name"))
+        # Always trust the configured issuer — LLMs hallucinate wrong bank names when
+        # a page contains competitor card ads or cross-sell sections.
+        if page.get("issuer_id"):
+            c["issuer_id"] = page["issuer_id"]
+        if page.get("issuer_name"):
+            c["issuer_name"] = page["issuer_name"]
+        c.setdefault("issuer_id",   None)
+        c.setdefault("issuer_name", None)
         c["source_url"] = src_url
+
+        # Clean card_name: LLMs sometimes return full SEO titles or markdown link artifacts
+        if raw_name := c.get("card_name"):
+            cleaned = _clean_card_name(raw_name)
+            if cleaned:
+                c["card_name"] = cleaned
+
+        # Anti-hallucination guard: a small local model can invent a plausible card
+        # that isn't on the page at all. Require the card name to actually appear in
+        # the source text, or drop the record entirely.
+        if not _name_grounded_in_page(c.get("card_name"), page.get("markdown", "")):
+            log.info("dropped ungrounded LLM card %r (name not found on %s)",
+                     c.get("card_name"), src_url)
+            continue
+
+        # Filter garbage welcome_benefit values the LLM copies verbatim from markdown
+        wb = c.get("welcome_benefit")
+        if wb and isinstance(wb, str):
+            wb = wb.strip().strip('"').strip()
+            if (not wb or wb.lower() == "null"
+                    or _WB_JUNK_RE.search(wb)
+                    or (not _WB_VALUE_RE.search(wb) and len(wb) < 30)
+                    or re.match(r'^!', wb)):
+                c["welcome_benefit"] = None
+            else:
+                c["welcome_benefit"] = wb
+
         errs = sorted(VALIDATOR.iter_errors(c), key=lambda e: e.path)
         if errs:
             log.debug("schema warnings for %s: %s",
