@@ -30,6 +30,10 @@ VALIDATOR = Draft7Validator(SCHEMA)
 # Set ALLOW_PAID_LLM=1 to enable the paid fallback chain.
 ALLOW_PAID_LLM = os.getenv("ALLOW_PAID_LLM", "0") == "1"
 
+# Depth pass: after rule-based extraction, also run the (free, local) LLM and merge
+# its detail fields into each card so empty fields get filled. Slow, so opt-in.
+ENRICH_WITH_LLM = os.getenv("ENRICH_WITH_LLM", "0") == "1"
+
 SYSTEM = """You extract Indian payment-card product details from web pages.
 
 You will receive one or more pages in --- DOCUMENT --- blocks.
@@ -541,8 +545,16 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
     for p in valid:
         rule_cards.extend(parse_cards(p))
     if rule_cards:
-        log.info("extracted %d card(s) from %d page(s) via rule-based parser",
-                 len(rule_cards), len(valid))
+        # Optional depth pass: enrich rule-based cards with a local LLM (free) so empty
+        # detail fields (fees/rewards/lounge/insurance/perks/...) get filled. Identity
+        # fields (name/issuer/category) stay rule-based. Opt-in (slow); default off.
+        if ENRICH_WITH_LLM:
+            try:
+                _enrich_rule_cards(rule_cards, valid)
+            except Exception as e:
+                log.warning("LLM enrichment failed (keeping rule-based): %s", e)
+        log.info("extracted %d card(s) from %d page(s) via rule-based parser%s",
+                 len(rule_cards), len(valid), " + LLM enrich" if ENRICH_WITH_LLM else "")
         return rule_cards
 
     # Skip LLM fallback for listing pages: their individual detail URLs are already
@@ -552,7 +564,83 @@ def extract_cards(batch: list[dict]) -> list[dict] | None:
         log.debug("listing page(s) produced no rule-based cards — skipping LLM")
         return []
 
-    # Fallback: LLM chain (Ollama → Gemini → Groq → OpenAI)
+    # Fallback: no rule-based cards → let the LLM chain try the page from scratch.
+    return _llm_extract(valid)
+
+
+# ── LLM extraction + enrichment ───────────────────────────────────────────────
+
+# Detail field groups the LLM may fill. Identity fields are NEVER overwritten here.
+_ENRICH_FIELDS = (
+    "fees", "rewards", "lounge_access", "insurance", "milestones",
+    "perks", "partner_offers", "eligibility", "welcome_benefit",
+    "network", "segment", "apply_url", "card_material",
+)
+
+
+def _has_data(v) -> bool:
+    """True if a value carries real data — not None/empty and not an all-empty dict/list.
+    Treats the literal string 'null' as empty (small models emit it)."""
+    if isinstance(v, dict):
+        return any(_has_data(x) for x in v.values())
+    if isinstance(v, list):
+        return any(_has_data(x) for x in v)
+    if isinstance(v, str):
+        return v.strip().lower() not in ("", "null", "none", "n/a")
+    return v is not None
+
+
+def _merge_enrich(base: dict, extra: dict) -> None:
+    """Fill base's empty detail fields from extra (LLM). Rule-based always wins on
+    conflicts; for dicts we add only missing sub-keys; lists fill only when base empty.
+    Effectively-empty LLM values (all-None dicts, 'null' strings) are ignored."""
+    for k in _ENRICH_FIELDS:
+        bv, ev = base.get(k), extra.get(k)
+        if not _has_data(ev):
+            continue
+        if not _has_data(bv):
+            base[k] = ev
+        elif isinstance(bv, dict) and isinstance(ev, dict):
+            for kk, vv in ev.items():
+                if _has_data(vv) and not _has_data(bv.get(kk)):
+                    bv[kk] = vv
+
+
+def _best_name_match(rule_card: dict, cands: list[dict]) -> dict | None:
+    """Pick the LLM card whose name best matches the rule-based card (token overlap)."""
+    rn = {t for t in re.split(r"[^a-z0-9]+", (rule_card.get("card_name") or "").lower()) if len(t) > 2}
+    best, best_score = None, 0
+    for c in cands:
+        cn = {t for t in re.split(r"[^a-z0-9]+", (c.get("card_name") or "").lower()) if len(t) > 2}
+        score = len(rn & cn)
+        if score > best_score:
+            best, best_score = c, score
+    # If only one candidate and same page, accept even with weak overlap.
+    if best is None and len(cands) == 1:
+        return cands[0]
+    return best
+
+
+def _enrich_rule_cards(rule_cards: list[dict], valid: list[dict]) -> None:
+    """Run the LLM on the detail pages and merge its detail fields into rule_cards."""
+    detail_pages = [p for p in valid if not p.get("is_listing")]
+    if not detail_pages:
+        return
+    llm_cards = _llm_extract(detail_pages)
+    if not llm_cards:
+        return
+    by_url: dict = {}
+    for lc in llm_cards:
+        by_url.setdefault(lc.get("source_url"), []).append(lc)
+    for rc in rule_cards:
+        match = _best_name_match(rc, by_url.get(rc.get("source_url"), []))
+        if match:
+            _merge_enrich(rc, match)
+
+
+def _llm_extract(valid: list[dict]) -> list[dict] | None:
+    """Run the LLM chain (Ollama → optional paid) on pages; return cleaned, grounded
+    cards, or None if all providers are exhausted (caller should retry next run)."""
     # Cap per-document length: small local models (qwen2.5:7b / llama3.2) degrade or
     # return empty on very long contexts. The product info (name/fees/rewards) is
     # almost always in the first part of the page; the tail is FAQs / T&C / footer.
