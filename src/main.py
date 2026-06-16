@@ -147,6 +147,40 @@ def gather_urls() -> list[dict]:
 
 # ── Fetch ─────────────────────────────────────────────────────────────────────
 
+# Issuer config lookup for supplement pages (fees/eligibility split onto sub-pages).
+try:
+    from .scrape_issuers import CFG as _CFG
+    _ISSUER_CFG = {i["id"]: i for i in _CFG.get("issuers", [])}
+except Exception:
+    _ISSUER_CFG = {}
+
+
+def _append_supplements(url: str, text: str, issuer_id: str | None) -> str:
+    """Fetch this issuer's configured supplement sub-pages (e.g. /fees-and-charges)
+    for the card URL and append their text, so split fee/eligibility data lands on
+    the same record. Best-effort: failures are ignored."""
+    cfg = _ISSUER_CFG.get(issuer_id or "")
+    suffixes = (cfg or {}).get("supplement_suffixes") or []
+    base = url.rstrip("/")
+    for suffix in suffixes:
+        sup_url = base + suffix
+        try:
+            res = fetch(sup_url)
+        except Exception as e:
+            log.debug("supplement fetch error %s: %s", sup_url, e)
+            continue
+        sup = (res.text or res.html or "") if res and res.ok else ""
+        if len(sup) < 200:
+            continue
+        first_line = sup[:200].split("\n")[0].lower()
+        if any(p in first_line for p in ("page not found", "404", "does not exist")):
+            continue
+        label = suffix.strip("/").replace("-", " ").upper()
+        text += f"\n\n## {label}\n{sup}"
+        log.info("    appended supplement %s (%d chars)", suffix, len(sup))
+    return text
+
+
 def fetch_page(row: dict) -> dict | None:
     url          = row["url"]
     is_discovery = row.get("is_discovery", False)
@@ -183,6 +217,12 @@ def fetch_page(row: dict) -> dict | None:
                                      "page doesn't exist", "page does not exist")):
         log.info("404 content detected, skip: %s  (title: %r)", url, first_line[:80])
         return None
+
+    # Some banks split fees / eligibility onto dedicated sub-pages (e.g. IndusInd,
+    # HDFC: <card-url>/fees-and-charges). Fetch configured supplement pages for this
+    # issuer and append them so the parser/LLM see that data on the same record.
+    if not prefetched and not row.get("is_listing"):
+        text = _append_supplements(url, text, row.get("issuer_id"))
 
     sha = sha256(text)
     if not FORCE_REFRESH and store.source_unchanged(url, sha):

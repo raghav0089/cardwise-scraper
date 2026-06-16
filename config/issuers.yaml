@@ -17,6 +17,10 @@ issuers:
       - https://www.hdfc.bank.in/debit-cards
     # Matches individual card product pages (2-segment paths only, e.g. /credit-cards/<slug>)
     detail_link_pattern: "^https://www\\.hdfc\\.bank\\.in/(credit|debit)-cards/[a-z0-9][a-z0-9-]+-card$"
+    # Some HDFC cards keep the full fee schedule on a dedicated sub-page — fetch & merge
+    # (verified: marriott-bonvoy ₹3,000, diners-club-black ₹10,000 + ₹8L waiver)
+    supplement_suffixes:
+      - /fees-and-charges
 
   - id: icici
     name: ICICI Bank
@@ -76,6 +80,8 @@ issuers:
     sitemap_url: "https://www.indusind.bank.in/sitemap.xml"
     list_urls: []
     detail_link_pattern: "indusind\\.bank\\.in/in/en/personal/cards/(credit|debit)-card/[a-z][a-z0-9-]+\\.html$"
+    # NOTE: IndusInd renders fees in a JS table / PDF — not present in fetched HTML,
+    # so a fees-and-charges supplement page adds no extractable fee data here.
 
   - id: rbl
     name: RBL Bank
