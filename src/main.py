@@ -309,6 +309,9 @@ def _is_valid_card_name(name: str) -> bool:
     # Generic non-products ("Add On Card", "Credit Card") — no brand/product identity.
     if _JUNK_NAME_RE.match(name):
         return False
+    # Service/utility links mis-captured as cards ("Quick Credit Card services").
+    if re.search(r'\b(services?|helpline|customer\s+care|quick\s+\w+\s+services?|login)\s*$', name, re.I):
+        return False
     # A real product name has a distinctive word beyond the generic category terms.
     distinctive = re.sub(
         r'\b(the|a|an|add[\s-]?on|addon|supplementary|'

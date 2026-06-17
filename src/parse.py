@@ -116,10 +116,11 @@ def _clean_card_name(raw: str) -> str:
     # [Card Name](url) → Card Name
     val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', raw).strip()
     # Strip sub-page heading prefixes that leak in ("Fees and Charges of X Card",
-    # "Eligibility for X Card", "Features of X Card", "Benefits of X Card").
+    # "Top Benefits of X Card", "Eligibility for X Card", "Features of X Card").
     val = re.sub(
-        r'^(?:fees?\s+(?:and|&)\s+charges?|eligibility|features?|benefits?|'
-        r'rewards?|redemption|terms?\s+(?:and|&)\s+conditions?)\s+(?:of|for)\s+',
+        r'^(?:top\s+|key\s+|all\s+|more\s+|exclusive\s+)?'
+        r'(?:fees?\s+(?:and|&)\s+charges?|eligibility|features?|benefits?|'
+        r'rewards?|redemption|terms?\s+(?:and|&)\s+conditions?|about)\s+(?:of|for|on)\s+',
         '', val, flags=re.I).strip()
     # Strip "| Bank Name" suffix  (Jina Title: format)
     val = re.sub(r'\s*\|.*$', '', val).strip()
