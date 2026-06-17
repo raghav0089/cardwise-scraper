@@ -364,6 +364,8 @@ def _call_gemini(prompt: str) -> str | None:
 # forced to follow our exact JSON schema — no hallucinated field names.
 
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+# Hard per-call timeout (seconds) so a stalled local generation can't freeze the run.
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "90"))
 _ollama_ok:  bool | None = None
 
 
@@ -394,20 +396,24 @@ def _call_ollama(_system: str, user: str) -> str | None:
         return None
 
     try:
-        import ollama as _ollama_lib
+        from ollama import Client
     except ImportError:
         _ollama_ok = False
         return None
 
     try:
-        resp = _ollama_lib.chat(
+        # Hard timeout: a local model can occasionally stall on a page and would
+        # otherwise hang the whole run forever. On timeout we raise → skip enrichment
+        # for this card (rule-based data is kept) and continue.
+        client = Client(timeout=OLLAMA_TIMEOUT)
+        resp = client.chat(
             model=OLLAMA_MODEL,
             messages=[
                 {"role": "system", "content": _OLLAMA_SYSTEM},
                 {"role": "user",   "content": user},
             ],
             format="json",                 # constrained JSON output
-            options={"temperature": 0},
+            options={"temperature": 0, "num_predict": 1024},
         )
         _ollama_ok = True
         return resp.message.content
