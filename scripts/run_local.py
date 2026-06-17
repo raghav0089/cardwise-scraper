@@ -23,7 +23,8 @@ Env:
 from __future__ import annotations
 import os
 # Configure BEFORE importing modules that read these at import time.
-os.environ["AWS_REGION"] = ""                      # disable DDB/S3 (store no-ops)
+os.environ["DISABLE_STORE"] = "1"                  # never touch DynamoDB/S3
+os.environ["AWS_REGION"] = ""
 os.environ["ALLOW_PAID_LLM"] = "0"                 # never spend money
 os.environ.setdefault("ENRICH_WITH_LLM", "0" if os.getenv("ENRICH") == "0" else "1")
 os.environ.setdefault("OLLAMA_MODEL", "llama3.2:latest")
