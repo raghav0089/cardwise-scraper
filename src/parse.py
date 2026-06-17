@@ -510,17 +510,21 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
             pct = round(rate / spend * 100, 4) if spend >= 100 else rate
         else:
             pct = round((pv or 0.25) * rate / spend * 100, 4)
-        if not trailing or _BASE_CAT_RE.search(trailing):
+        # Strip lead-in ("spent on", "Spends on", "on") and any cap/parenthetical tail.
+        cat = re.sub(r"^(?:spent\s+on|spends?\s+on|spent|on|for)\s+", "", trailing, flags=re.I)
+        cat = re.split(r"\bcapped\b|\bup\s+to\b|\bsubject\s+to\b|\(", cat, flags=re.I)[0].strip(" .,*&-/")
+        # Is what remains a real category, or just generic spend words → base rate?
+        meaningful = re.sub(
+            r"\b(all|other|your|the|retail|spends?|spent|purchases?|transactions?|"
+            r"everywhere|every|category|categories|merchant)\b", "", cat, flags=re.I).strip(" .,*&-/")
+        if not trailing or _BASE_CAT_RE.search(trailing) or len(meaningful) < 3:
             out.setdefault("base_rate_pct", pct)
-        else:
-            cat = re.sub(r"^(?:spends?\s+on|on)\s+", "", trailing, flags=re.I).strip(" .*")
-            cat = re.split(r"\bcapped\b|\bup\s+to\b|\(", cat, flags=re.I)[0].strip(" ,.&")
-            if cat and 2 < len(cat) < 70 and cat.lower() not in earn_seen:
-                earn_seen.add(cat.lower())
-                cap_m = _CAP_RE.search(trailing)
-                earn_acc.append({"category": cat, "rate_pct": pct,
-                                 "cap_inr": _num(cap_m.group(1)) if cap_m else None,
-                                 "notes": f"{m.group(1)} {unit.strip()} per ₹{m.group(3)}"})
+        elif cat.lower() not in earn_seen and len(cat) < 70:
+            earn_seen.add(cat.lower())
+            cap_m = _CAP_RE.search(trailing)
+            earn_acc.append({"category": cat, "rate_pct": pct,
+                             "cap_inr": _num(cap_m.group(1)) if cap_m else None,
+                             "notes": f"{m.group(1)} {unit.strip()} per ₹{m.group(3)}"})
 
     # Currency name — prefer the unit actually used in earn lines, then _CURR_RE, then issuer default
     if earn_unit and not re.search(r"cash\s*back", earn_unit, re.I):
@@ -585,7 +589,21 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
             if not duplicate:
                 deduped.append(entry)
                 kept_tokens.append((rate, words))
-        out["accelerated"] = deduped
+        # Drop misleading entries: no rate, or a category that's only generic spend
+        # words ("spent", "all retail spends"). The raw text lives in highlights[].
+        clean = []
+        for e in deduped:
+            if e.get("rate_pct") is None:
+                continue
+            meaningful = re.sub(
+                r"\b(all|other|your|the|retail|spends?|spent|purchases?|transactions?|"
+                r"everywhere|every|category|categories|merchant|on|at|for|/-)\b",
+                "", e["category"], flags=re.I).strip(" .,*&-/")
+            if len(meaningful) < 3:
+                continue
+            clean.append(e)
+        if clean:
+            out["accelerated"] = clean
 
     # Exclusions & redemption
     excl = [m.group(1).strip() for m in _EXCL_RE.finditer(md)]
