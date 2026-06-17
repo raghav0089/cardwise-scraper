@@ -40,7 +40,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "currency":           { "type": ["string", "null"], "enum": [null, "cashback", "reward_points", "cashpoints", "neucoins", "edge_miles", "miles", "coins", "6e_rewards", "other"] },
+        "currency":           { "type": ["string", "null"], "description": "lowercase token. common: cashback | reward_points | cashpoints | neucoins | edge_miles | indusmiles | kotak_points | membership_rewards | miles | mojo_points | 6e_rewards | skywards_miles" },
         "unit_value_inr":     { "type": ["number", "null"], "description": "₹ value of 1 unit (e.g. 1 point = ₹0.25)" },
         "base_units":         { "type": ["number", "null"], "description": "base reward units per block, e.g. 2 in '2 points per ₹100'" },
         "base_per_inr":       { "type": ["number", "null"], "description": "base spend block in ₹, e.g. 100" },
@@ -60,6 +60,7 @@
             "departmental_store", "smartbuy_portal", "wallet", "gaming"
           ] }
         },
+        "accelerated":        { "type": "array", "description": "earn rates whose category is not one of the named category_rewards keys; each sets 'category'.", "items": { "$ref": "#/$defs/catRate" } },
         "redemption_modes":   { "type": "array", "items": { "type": "string", "enum": ["statement_credit", "cashback", "flights", "hotels", "vouchers", "gift_cards", "merchandise", "smartbuy", "amazon_pay", "airmiles", "charity", "fuel", "bill_pay"] } },
         "transfer_partners":  { "type": "array", "items": { "type": "string" } },
         "exclusions":         { "type": "array", "items": { "type": "string", "enum": ["fuel", "rent", "wallet", "utilities", "insurance", "education", "government", "ewallet", "emi", "cash"] } }
@@ -173,7 +174,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "kind":       { "type": "string", "enum": ["golf_game", "golf_lesson", "movie", "dining_program", "spa", "concierge", "hotel_membership", "subscription", "voucher", "gift_card", "roadside_assist", "contactless", "virtual_card", "buy_one_get_one", "fuel_benefit", "wellness"] },
+          "kind":       { "type": "string", "enum": ["golf", "movie", "dining", "spa", "concierge", "hotel", "subscription", "voucher", "gift_card", "railway_lounge", "roadside_assist", "contactless", "virtual_card", "emi_conversion", "forex_perk", "buy_one_get_one", "fuel_benefit", "wellness", "insurance", "other"] },
           "brand":      { "type": ["string", "null"], "description": "token: amazon_prime | netflix | marriott_club | zomato_gold | swiggy_one | hotstar | ..." },
           "value_inr":  { "type": ["number", "null"] },
           "count_year": { "type": ["integer", "null"] },
@@ -213,8 +214,9 @@
     "catRate": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Earn rate for a category, stored as the actual structure (units per ₹block) AND a derived %.",
+      "description": "Earn rate for a category, stored as the actual structure (units per ₹block) AND a derived %. In category_rewards the key is the category; in accelerated[] set the 'category' token.",
       "properties": {
+        "category":   { "type": ["string", "null"], "description": "token, only for accelerated[] entries not covered by a named category_rewards key (e.g. phonepe, birthday_spends, weekday, select_merchants)" },
         "units":      { "type": ["number", "null"], "description": "reward units earned per block — e.g. 2 in '2 Reward Points per ₹100'" },
         "per_inr":    { "type": ["number", "null"], "description": "spend block in ₹ — e.g. 100 in '2 points per ₹100'" },
         "multiplier": { "type": ["number", "null"], "description": "X-multiplier if stated as e.g. '10X points'" },
