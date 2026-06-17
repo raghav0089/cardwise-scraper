@@ -115,6 +115,12 @@ def _clean_card_name(raw: str) -> str:
     """Turn a noisy Jina/SEO title into a clean card product name."""
     # [Card Name](url) → Card Name
     val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', raw).strip()
+    # Strip sub-page heading prefixes that leak in ("Fees and Charges of X Card",
+    # "Eligibility for X Card", "Features of X Card", "Benefits of X Card").
+    val = re.sub(
+        r'^(?:fees?\s+(?:and|&)\s+charges?|eligibility|features?|benefits?|'
+        r'rewards?|redemption|terms?\s+(?:and|&)\s+conditions?)\s+(?:of|for)\s+',
+        '', val, flags=re.I).strip()
     # Strip "| Bank Name" suffix  (Jina Title: format)
     val = re.sub(r'\s*\|.*$', '', val).strip()
     # Strip " - <Bank/Finance/Financial Name>" suffix (common in page titles)
