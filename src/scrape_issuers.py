@@ -97,6 +97,27 @@ def collect_detail_urls(issuer_ids: set[str] | None = None) -> list[dict]:
                     })
             log.info("    sitemap contributed %d card URLs", len(added))
 
+        # ── Forced single cards (neobanks / product name lacks 'card') ─────────
+        # issuer `cards:` is a list of {name, url, category?, network?}. Each is
+        # emitted as a forced card so the parser creates it with that exact name.
+        for cd in (issuer.get("cards") or []):
+            u = cd.get("url")
+            if not u or u in added:
+                continue
+            added.add(u)
+            out.append({
+                "url":             u,
+                "issuer_id":       issuer["id"],
+                "issuer_name":     issuer["name"],
+                "issuer_type":     issuer["type"],
+                "is_listing":      False,
+                "force_card_name": cd["name"],
+                "force_category":  cd.get("category", "credit"),
+                "force_network":   cd.get("network"),
+            })
+        if issuer.get("cards"):
+            log.info("    %d forced card(s)", len(issuer["cards"]))
+
         # ── Explicit single-card detail pages ─────────────────────────────────
         # `detail_urls` are specific card product pages, parsed AS detail pages with
         # NO sibling-link harvesting. Use this for co-brand / single-card issuers so

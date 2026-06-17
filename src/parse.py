@@ -935,8 +935,15 @@ def _highlights(md: str, limit: int = 50) -> list:
 # ─────────────────────────────────────────────────────────────
 
 def _parse_one(md: str, base: dict) -> Optional[dict]:
-    """Parse one card's markdown section. `base` has issuer_id, issuer_name, source_url."""
-    if not re.search(r"credit\s+card|debit\s+card|prepaid|forex\s+card", md, re.I):
+    """Parse one card's markdown section. `base` has issuer_id, issuer_name, source_url.
+
+    If base has `force_name`, the card is created with that exact name and category
+    (used for neobanks / single-card issuers whose product name lacks the word
+    'card', so generic name-detection can't find it) — the card-keyword guard and
+    name detection are skipped, but all detail extractors still run.
+    """
+    force_name = base.get("force_name")
+    if not force_name and not re.search(r"credit\s+card|debit\s+card|prepaid|forex\s+card", md, re.I):
         return None
 
     src_url = base.get("source_url") or ""
@@ -959,25 +966,31 @@ def _parse_one(md: str, base: dict) -> Optional[dict]:
         "category":    default_cat,
     }
 
-    n_page = _name(md)
-    n_url  = _name_from_url(src_url) if src_url else None
-    # Prefer page name when it explicitly identifies card type (credit/debit).
-    # If the URL says credit-card but the page name only says "card" (e.g. "Entertainment Card"),
-    # the URL slug is usually more accurate (e.g. "Platinum Times Credit Card").
-    url_has_type = bool(re.search(r"credit.card|debit.card", src_url, re.I))
-    page_has_type = bool(re.search(r"credit\s+card|debit\s+card|prepaid|forex\s+card", n_page or "", re.I))
-    if n_page and (page_has_type or not url_has_type) and re.search(r'\bcard\b', n_page, re.I):
-        card["card_name"] = n_page
-    elif n_url:
-        card["card_name"] = n_url
-    elif n_page:
-        card["card_name"] = n_page
+    if force_name:
+        card["card_name"] = force_name
+        if base.get("force_category"):
+            card["category"] = base["force_category"]
+    else:
+        n_page = _name(md)
+        n_url  = _name_from_url(src_url) if src_url else None
+        # Prefer page name when it explicitly identifies card type (credit/debit).
+        # If the URL says credit-card but the page name only says "card" (e.g. "Entertainment Card"),
+        # the URL slug is usually more accurate (e.g. "Platinum Times Credit Card").
+        url_has_type = bool(re.search(r"credit.card|debit.card", src_url, re.I))
+        page_has_type = bool(re.search(r"credit\s+card|debit\s+card|prepaid|forex\s+card", n_page or "", re.I))
+        if n_page and (page_has_type or not url_has_type) and re.search(r'\bcard\b', n_page, re.I):
+            card["card_name"] = n_page
+        elif n_url:
+            card["card_name"] = n_url
+        elif n_page:
+            card["card_name"] = n_page
 
     # Let page content override category (e.g., a credit card on a debit page URL)
-    for cat, pat in _CAT_RE.items():
-        if pat.search(md):
-            card["category"] = cat
-            break
+    if not force_name:
+        for cat, pat in _CAT_RE.items():
+            if pat.search(md):
+                card["category"] = cat
+                break
 
     if m := _NET_RE.search(md):
         raw = m.group(1).lower()
@@ -1038,6 +1051,15 @@ def parse_cards(page: dict) -> list[dict]:
         "issuer_name": page.get("issuer_name"),
         "source_url":  page.get("source_url"),
     }
+
+    # Forced single card (neobanks / issuers whose product name lacks 'card').
+    if page.get("force_card_name"):
+        base["force_name"]     = page["force_card_name"]
+        base["force_category"] = page.get("force_category")
+        card = _parse_one(md, base)
+        if card and page.get("force_network"):
+            card["network"] = page["force_network"]
+        return [card] if card else []
 
     # Only attempt section-splitting on listing pages — detail pages contain many
     # ##-level headings with "card" keywords that would be misidentified as sections.

@@ -243,6 +243,10 @@ def fetch_page(row: dict) -> dict | None:
         "markdown":    text,
         "sha":         sha,
         "etag":        etag,
+        # forced single-card (neobanks / product names lacking the word 'card')
+        "force_card_name": row.get("force_card_name"),
+        "force_category":  row.get("force_category"),
+        "force_network":   row.get("force_network"),
     }
 
 
