@@ -11,12 +11,15 @@ issuers:
     type: bank
     # Sitemap gives all card product pages directly — avoids JS-rendered listing pages
     sitemap_url: "https://www.hdfc.bank.in/sitemap.xml"
+    # HDFC publishes cards across 3 sections: /credit-cards, /commercial-credit-cards
+    # (corporate), and /business-credit-cards (the Biz* SME series).
     list_urls:
       # hdfc.bank.in is the canonical domain (hdfcbank.com redirects here)
       - https://www.hdfc.bank.in/credit-cards
       - https://www.hdfc.bank.in/debit-cards
-    # Matches individual card product pages (2-segment paths only, e.g. /credit-cards/<slug>)
-    detail_link_pattern: "^https://www\\.hdfc\\.bank\\.in/(credit|debit)-cards/[a-z0-9][a-z0-9-]+-card$"
+      - https://www.hdfc.bank.in/business-credit-cards
+    # Matches individual card product pages across all three sections
+    detail_link_pattern: "^https://www\\.hdfc\\.bank\\.in/(credit-cards|debit-cards|commercial-credit-cards|business-credit-cards)/[a-z0-9][a-z0-9-]+-card$"
     # Some HDFC cards keep the full fee schedule on a dedicated sub-page — fetch & merge
     # (verified: marriott-bonvoy ₹3,000, diners-club-black ₹10,000 + ₹8L waiver)
     supplement_suffixes:
