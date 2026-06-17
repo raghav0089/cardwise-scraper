@@ -41,8 +41,10 @@
       "additionalProperties": false,
       "properties": {
         "currency":           { "type": ["string", "null"], "enum": [null, "cashback", "reward_points", "cashpoints", "neucoins", "edge_miles", "miles", "coins", "6e_rewards", "other"] },
-        "unit_value_inr":     { "type": ["number", "null"], "description": "₹ value of 1 unit" },
-        "base_rate_pct":      { "type": ["number", "null"] },
+        "unit_value_inr":     { "type": ["number", "null"], "description": "₹ value of 1 unit (e.g. 1 point = ₹0.25)" },
+        "base_units":         { "type": ["number", "null"], "description": "base reward units per block, e.g. 2 in '2 points per ₹100'" },
+        "base_per_inr":       { "type": ["number", "null"], "description": "base spend block in ₹, e.g. 100" },
+        "base_rate_pct":      { "type": ["number", "null"], "description": "derived base value-back %" },
         "is_cashback":        { "type": ["boolean", "null"] },
         "expiry_months":      { "type": ["integer", "null"] },
         "monthly_cap_inr":    { "type": ["number", "null"] },
@@ -208,10 +210,16 @@
     "catRate": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Earn rate for a category, stored as the actual structure (units per ₹block) AND a derived %.",
       "properties": {
-        "rate_pct":   { "type": ["number", "null"], "description": "effective value-back %" },
+        "units":      { "type": ["number", "null"], "description": "reward units earned per block — e.g. 2 in '2 Reward Points per ₹100'" },
+        "per_inr":    { "type": ["number", "null"], "description": "spend block in ₹ — e.g. 100 in '2 points per ₹100'" },
+        "multiplier": { "type": ["number", "null"], "description": "X-multiplier if stated as e.g. '10X points'" },
+        "rate_pct":   { "type": ["number", "null"], "description": "derived value-back % (units*unit_value_inr/per_inr*100, or the cashback %)" },
         "cap_inr":    { "type": ["number", "null"] },
-        "cap_period": { "type": ["string", "null"], "enum": [null, "daily", "monthly", "quarterly", "annual", "statement", "per_transaction"] }
+        "cap_units":  { "type": ["number", "null"], "description": "cap expressed in reward units, if stated that way" },
+        "cap_period": { "type": ["string", "null"], "enum": [null, "daily", "monthly", "quarterly", "annual", "statement", "per_transaction"] },
+        "channel":    { "type": ["string", "null"], "enum": [null, "upi", "card_swipe", "online", "offline", "app", "international"], "description": "payment channel qualifier, e.g. UPI-only" }
       }
     }
   }
