@@ -36,6 +36,13 @@ JINA_MIN_INTERVAL = float(_os.getenv(
 JINA_BYPASS_HOSTS: frozenset[str] = frozenset({
     "www.axis.bank.in",
     "axis.bank.in",
+    # PSU / SFB / payments banks whose heavy *.bank.in sites Jina can't render but
+    # plain requests returns full SSR HTML with the card links/content.
+    "www.unionbankofindia.bank.in", "www.indianbank.in",
+    "bankofmaharashtra.bank.in", "centralbank.bank.in", "www.cityunionbank.com",
+    "www.dhan.bank.in", "www.dbs.bank.in", "equitas.bank.in", "www.jana.bank.in",
+    "www.ujjivansfb.bank.in", "www.nainitalbank.bank.in",
+    "www.airtelpayments.bank.in", "www.fino.bank.in",
 })
 
 STRICT_PROXY_DOMAINS: frozenset[str] = frozenset({
