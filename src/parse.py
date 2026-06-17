@@ -544,7 +544,11 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 _WELCOME_RE = re.compile(
-    r"(?:welcome|joining)\s+(?:benefit|gift|bonus|offer)[s:]*\s*([^\n]{20,400})", re.I)
+    r"(?:"
+    r"(?:welcome|joining)\s+(?:benefit|gift|bonus|offer|reward|voucher)s?"
+    r"|on\s+(?:card\s+)?(?:joining|activation|first\s+(?:transaction|spend|swipe))"
+    r"|as\s+a\s+welcome"
+    r")[s:\-—]*\s*([^\n]{15,400})", re.I)
 
 # A welcome_benefit string is only meaningful if it quantifies something —
 # money, points, a voucher, a membership, etc. Used to drop vague LLM/markdown
@@ -581,9 +585,11 @@ def _welcome(md: str) -> Optional[str]:
 # Milestones
 # ─────────────────────────────────────────────────────────────
 
+# Milestone: "Spend ₹X get Y", "On annual spends of ₹X, get Y", "Achieve ₹X spends → Y"
 _MILE_RE = re.compile(
-    r"(?:spend|spending|spends?)\s+(?:of\s+)?[₹rs.]*\s*([\d,]+(?:\.\d+)?)\s*(lakh|lac|crore|cr\b)?[^.\n]{0,80}"
-    r"(?:get|earn|receive|enjoy|unlock|bonus)\s+([^.\n]{10,150})", re.I)
+    r"(?:on\s+)?(?:annual\s+|yearly\s+|quarterly\s+|achieving\s+|reaching\s+)?"
+    r"(?:spend|spending|spends?)\s+(?:of\s+)?[₹rs.]*\s*([\d,]+(?:\.\d+)?)\s*(lakh|lac|crore|cr\b)?[^.\n]{0,90}?"
+    r"(?:get|earn|receive|enjoy|unlock|bonus|complimentary|worth|voucher|free)\s+([^.\n]{8,150})", re.I)
 
 def _milestones(md: str) -> list:
     out, seen = [], set()
@@ -666,18 +672,25 @@ def _lounge(md: str) -> dict:
 # Insurance
 # ─────────────────────────────────────────────────────────────
 
+# Insurance amounts often read as "Air Accident cover of ₹1 crore", "Credit Shield
+# of Rs. 1,00,000", "Lost Card Liability ₹X". Use _INR_LAKH to capture lakh/crore.
 _INS_PATS = [
-    ("air_accident_inr",        re.compile(r"air\s+accident[^₹\d\n]{0,50}"       + _INR, re.I)),
-    ("lost_card_inr",           re.compile(r"lost\s+card[^₹\d\n]{0,50}"          + _INR, re.I)),
-    ("purchase_protection_inr", re.compile(r"purchase\s+protection[^₹\d\n]{0,50}" + _INR, re.I)),
-    ("travel_inr",              re.compile(r"travel\s+insurance[^₹\d\n]{0,50}"   + _INR, re.I)),
+    ("air_accident_inr",        re.compile(r"(?:air|personal)\s+accident(?:al)?\s*(?:death)?\s*(?:cover|insurance|liability)?[^₹\d\n]{0,40}" + _INR_LAKH, re.I)),
+    ("lost_card_inr",           re.compile(r"(?:lost\s+card|card\s+liability|credit\s+shield|fraud(?:ulent)?\s+(?:protection|liability))[^₹\d\n]{0,40}" + _INR_LAKH, re.I)),
+    ("purchase_protection_inr", re.compile(r"purchase\s+protection[^₹\d\n]{0,40}" + _INR_LAKH, re.I)),
+    ("travel_inr",              re.compile(r"(?:travel|overseas|baggage|flight\s+delay|trip)\s+(?:insurance|cover|delay)[^₹\d\n]{0,40}" + _INR_LAKH, re.I)),
 ]
+_INS_TWO_GROUP = frozenset({"air_accident_inr", "lost_card_inr", "purchase_protection_inr", "travel_inr"})
 
 def _insurance(md: str) -> dict:
     out: dict = {}
     for key, pat in _INS_PATS:
         if m := pat.search(md):
-            out[key] = _num(m.group(1))
+            suffix = m.group(2) if (key in _INS_TWO_GROUP and m.lastindex and m.lastindex >= 2) else ""
+            val = _num(m.group(1), suffix or "")
+            # Insurance covers are large — ignore tiny matches (likely a stray number).
+            if val is not None and val >= 10000:
+                out[key] = val
     return out
 
 
@@ -853,6 +866,12 @@ def _parse_one(md: str, base: dict) -> Optional[dict]:
     if m := _NET_RE.search(md):
         raw = m.group(1).lower()
         card["network"] = _NET_NORM.get(raw, m.group(1).title())
+    # Fallback: infer network from the card name ("... RuPay ...", "Diners Club ...").
+    if not card.get("network") and (nm := card.get("card_name")):
+        if m := _NET_RE.search(nm):
+            card["network"] = _NET_NORM.get(m.group(1).lower(), m.group(1).title())
+        elif re.search(r"\bdiners\b", nm, re.I):
+            card["network"] = "Diners"
 
     # Search first 60% of the page for segment keywords, with markdown link text
     # stripped — navigation menus list "[Premium & Super Premium Credit Card](url)"

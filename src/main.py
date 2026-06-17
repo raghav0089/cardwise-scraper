@@ -281,6 +281,15 @@ _REJECT_SUBSTR_RE = re.compile(
     re.I,
 )
 
+# Generic, non-product names: an add-on/supplementary card, or the bare category
+# with no product identity ("Credit Card", "Add On Card", "Supplementary Card").
+_JUNK_NAME_RE = re.compile(
+    r'^(?:the\s+)?(?:'
+    r'add[\s-]?on|addon|supplementary|additional|primary|secondary'
+    r')?\s*(?:credit|debit|prepaid|forex|business|corporate)?\s*card$',
+    re.I,
+)
+
 def _is_valid_card_name(name: str) -> bool:
     if not name:
         return False
@@ -296,6 +305,16 @@ def _is_valid_card_name(name: str) -> bool:
     if _REJECT_SUBSTR_RE.search(name):
         return False
     if not _CARD_KW_RE.search(name):
+        return False
+    # Generic non-products ("Add On Card", "Credit Card") — no brand/product identity.
+    if _JUNK_NAME_RE.match(name):
+        return False
+    # A real product name has a distinctive word beyond the generic category terms.
+    distinctive = re.sub(
+        r'\b(the|a|an|add[\s-]?on|addon|supplementary|'
+        r'credit|debit|prepaid|forex|business|corporate|card|bank|rupay|visa|'
+        r'mastercard|amex|diners)\b', '', name, flags=re.I).strip()
+    if len(distinctive) < 3:
         return False
     return True
 
