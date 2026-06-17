@@ -214,12 +214,20 @@ issuers:
   - id: onecard
     name: OneCard (FPL Technologies)
     type: neobank
+    cards:
+      - name: "OneCard Metal Credit Card"
+        url: https://www.getonecard.app/
+        category: credit
     list_urls:
       - https://www.getonecard.app/
 
   - id: cred
     name: CRED
     type: neobank
+    cards:
+      - name: "CRED IndusInd Bank RuPay Credit Card"
+        url: https://cred.club/credit-cards
+        category: credit
     list_urls:
       # CRED IndusInd Bank RuPay Credit Card (invite-only, launched Sep 2025)
       - https://cred.club/card
@@ -250,6 +258,10 @@ issuers:
   - id: slice
     name: slice (North East SFB)
     type: neobank
+    cards:
+      - name: "Slice Credit Card"
+        url: https://slice.bank.in/
+        category: credit
     list_urls:
       # slice.bank.in is the canonical domain (sliceit.com redirects here)
       - https://slice.bank.in/
@@ -283,18 +295,30 @@ issuers:
   - id: zaggle
     name: Zaggle
     type: neobank
+    cards:
+      - name: "Zaggle Save Card"
+        url: https://www.zaggle.in/
+        category: prepaid
     list_urls:
       - https://www.zaggle.in/
 
   - id: open
     name: Open Money
     type: neobank
+    cards:
+      - name: "Open Corporate Credit Card"
+        url: https://open.money/
+        category: corporate
     list_urls:
       - https://open.money/
 
   - id: razorpayx
     name: RazorpayX
     type: neobank
+    cards:
+      - name: "RazorpayX Corporate Credit Card"
+        url: https://razorpay.com/x/corporate-cards/
+        category: corporate
     detail_urls:
       - https://razorpay.com/x/corporate-cards/
 
@@ -675,12 +699,20 @@ issuers:
   - id: stashfin
     name: StashFin
     type: neobank
+    cards:
+      - name: "StashFin Credit Line Card"
+        url: https://www.stashfin.com/
+        category: credit
     list_urls:
       - https://www.stashfin.com/
 
   - id: paisabazaar_stepup
     name: Paisabazaar StepUp Card (SBM Bank)
     type: neobank
+    cards:
+      - name: "Paisabazaar StepUp Credit Card"
+        url: https://www.paisabazaar.com/stepupcard/
+        category: credit
     list_urls:
       - https://www.paisabazaar.com/stepupcard/
 
