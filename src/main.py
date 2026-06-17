@@ -320,6 +320,20 @@ def _is_valid_card_name(name: str) -> bool:
     # Service/utility links mis-captured as cards ("Quick Credit Card services").
     if re.search(r'\b(services?|helpline|customer\s+care|quick\s+\w+\s+services?|login)\s*$', name, re.I):
         return False
+    # SEO / info / how-to pages that contain "card" but aren't products.
+    if re.search(r'^\s*(best|link|manage|cibil|smartloan|how\s+to|apply\s+for|'
+                 r'credit\s+meets|earn|get\s+your|why\s|what\s|compare)\b', name, re.I):
+        return False
+    if re.search(r'\b(nominee|instant\s+callback|transaction\s+limit|meets\s+convenience|'
+                 r'limit\s+guide|score\s+for|on\s+upi|documents?|seamless\s+transaction|'
+                 r'\bguide\b|nbsp|cli\b)\b|[*_]{2}', name, re.I):
+        return False
+    # Generic category pages, not products ("Movie Ticket Credit Card", "Fuel Credit Card").
+    if re.match(r'^(?:best\s+)?(?:movie(?:\s+ticket)?|shopping|fuel|travel|online(?:\s+shopping)?|'
+                r'airport(?:\s+lounge)?(?:\s+access)?|lifetime\s+free|cashback|rewards?|dining|'
+                r'lounge|entertainment|premium|super\s+premium)\s+(?:credit|debit)\s+card$',
+                name, re.I):
+        return False
     # A real product name has a distinctive word beyond the generic category terms.
     distinctive = re.sub(
         r'\b(the|a|an|add[\s-]?on|addon|supplementary|'
