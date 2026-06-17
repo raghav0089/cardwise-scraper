@@ -28,9 +28,12 @@ issuers:
   - id: icici
     name: ICICI Bank
     type: bank
+    # ICICI has no sitemap; harvest both credit AND debit listings (JS-rendered, so the
+    # curated fallback file backstops anything the listing doesn't expose on a given load)
     list_urls:
       - https://www.icici.bank.in/personal-banking/cards/credit-card
-    detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/credit-card/[a-z]"
+      - https://www.icici.bank.in/personal-banking/cards/debit-card
+    detail_link_pattern: "icici\\.bank\\.in/personal-banking/cards/(credit|debit)-card/[a-z]"
 
   - id: axis
     name: Axis Bank
