@@ -43,6 +43,8 @@ JINA_BYPASS_HOSTS: frozenset[str] = frozenset({
     "www.dhan.bank.in", "www.dbs.bank.in", "equitas.bank.in", "www.jana.bank.in",
     "www.ujjivansfb.bank.in", "www.nainitalbank.bank.in",
     "www.airtelpayments.bank.in", "www.fino.bank.in",
+    # Amex India — Jina flaky on americanexpress.com, direct requests returns full HTML
+    "www.americanexpress.com", "americanexpress.com",
 })
 
 STRICT_PROXY_DOMAINS: frozenset[str] = frozenset({

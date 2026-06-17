@@ -215,6 +215,25 @@ issuers:
   - id: amex
     name: American Express India
     type: network
+    cards:
+      - name: "American Express Membership Rewards Credit Card"
+        url: https://www.americanexpress.com/in/credit-cards/membership-rewards-credit-card/
+        category: credit
+      - name: "American Express SmartEarn Credit Card"
+        url: https://www.americanexpress.com/in/credit-cards/smart-earn-credit-card/
+        category: credit
+      - name: "American Express Platinum Travel Credit Card"
+        url: https://www.americanexpress.com/in/credit-cards/platinum-travel-credit-card/
+        category: credit
+      - name: "American Express Platinum Reserve Credit Card"
+        url: https://www.americanexpress.com/in/credit-cards/platinum-reserve-credit-card/
+        category: credit
+      - name: "American Express Gold Card"
+        url: https://www.americanexpress.com/in/charge-cards/gold-card/
+        category: credit
+      - name: "American Express Platinum Card"
+        url: https://www.americanexpress.com/in/charge-cards/platinum-card/
+        category: credit
     list_urls:
       - https://www.americanexpress.com/in/credit-cards/
 
@@ -821,3 +840,11 @@ issuers:
     detail_urls:
       # RuPay Virtual Debit Card
       - https://ippbonline.bank.in/web/ippb/virtual-debit-card
+  - id: deutsche
+    name: Deutsche Bank
+    type: bank
+    # Deutsche Bank India is mostly debit/private-banking now (retail credit largely exited)
+    cards:
+      - name: "Deutsche Bank Credit Card"
+        url: https://www.deutsche.bank.in/en/cards.html
+        category: debit

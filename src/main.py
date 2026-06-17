@@ -57,7 +57,7 @@ _SKIP_SEGS = frozenset({
 # Sub-string match within a segment (catches compound names like terms-and-conditions)
 _SKIP_SEG_RE = re.compile(
     # Use \bemi\b so we don't accidentally block "premier", "premium", etc.
-    r"\bemi\b|terms|fee|charge|privacy|personal-loan|bill-pay|"
+    r"\bemi\b|terms|fee|charges|fees-and-charge|privacy|personal-loan|bill-pay|"
     r"customer-care|negative-balance|do-not-call|credit-builder|"
     r"credit-card-service|different-type|top-\d|lounge-access|"
     r"zero-forex|best-lifetime|best-international|best-secured|"
@@ -188,12 +188,16 @@ def _append_supplements(url: str, text: str, issuer_id: str | None) -> str:
 def fetch_page(row: dict) -> dict | None:
     url          = row["url"]
     is_discovery = row.get("is_discovery", False)
+    # Explicitly-configured cards (forced/detail_urls) bypass the URL pre-filters —
+    # the URL is hand-picked, so heuristics like the 'travel-credit-card' skip
+    # (meant for SEO pages) must not drop it.
+    explicit = bool(row.get("force_card_name"))
 
-    if not _should_fetch(url, is_discovery=is_discovery):
+    if not explicit and not _should_fetch(url, is_discovery=is_discovery):
         log.debug("pre-filter skip: %s", url)
         return None
     bank_ext = _get_bank_extractor(row.get("issuer_id"))
-    if bank_ext and bank_ext.skip_url(url):
+    if not explicit and bank_ext and bank_ext.skip_url(url):
         log.debug("bank-specific skip (%s): %s", row.get("issuer_id"), url)
         return None
 
