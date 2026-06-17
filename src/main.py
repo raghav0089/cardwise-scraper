@@ -161,6 +161,10 @@ def _append_supplements(url: str, text: str, issuer_id: str | None) -> str:
     the same record. Best-effort: failures are ignored."""
     cfg = _ISSUER_CFG.get(issuer_id or "")
     suffixes = (cfg or {}).get("supplement_suffixes") or []
+    # If the main page already states fee figures, the fee sub-page is redundant — skip
+    # the extra fetch. Supplements exist to RESCUE cards whose main page omits fees.
+    if suffixes and re.search(r"(joining|annual|renewal)[^\n]{0,40}(₹|rs\.?\s*\d|inr\s*\d)", text, re.I):
+        return text
     base = url.rstrip("/")
     for suffix in suffixes:
         sup_url = base + suffix
