@@ -366,6 +366,21 @@ _FEE_PATS = [
     ("finance_charge_pct_mo", re.compile(r"(?:finance\s*charge|monthly\s*interest|interest\s*rate)[^%\d\n]{0,40}([\d.]+)\s*%", re.I)),
     ("fx_markup_pct",         re.compile(r"(?:forex|foreign\s*currency|cross.?currency)[^%\d\n]{0,40}([\d.]+)\s*%", re.I)),
 ]
+# "Nil"/free fee statements → capture as ₹0 (e.g. Fleet: "Joining/Renewal Fees: Nil").
+_NIL_JOIN_RE = re.compile(
+    r"join(?:ing)?[\s/]*(?:or\s+|renewal\s+)?(?:membership\s+)?fees?\s*[:\-–]?\s*(?:is\s+)?"
+    r"(?:nil|free|zero|waived|₹?\s*0\b|rs\.?\s*0\b)|"
+    r"(?:no|nil|zero)\s+joining\s+fee|does\s+not\s+charge\s+joining", re.I)
+_NIL_RENEW_RE = re.compile(
+    r"(?:annual|renewal|membership)\s*fees?\s*[:\-–]?\s*(?:is\s+)?"
+    r"(?:nil|free|zero|waived|₹?\s*0\b|rs\.?\s*0\b)|"
+    r"(?:no|nil|zero)\s+(?:annual|renewal)\s+fee|does\s+not\s+charge\s+(?:joining\s+and\s+)?renewal", re.I)
+_LIFETIME_FREE_RE = re.compile(r"lifetime\s+free|life\s*time\s+free|free\s+for\s+life", re.I)
+# Forex markup stated either order: "3.5% forex markup" OR "Markup of 3.5% on foreign currency"
+_FX_MARKUP_RE = re.compile(
+    r"(?:forex|foreign\s*currency|cross.?currency|markup|mark-up|foreign\s+exchange)"
+    r"[^%\d\n]{0,30}([\d.]+)\s*%|"
+    r"([\d.]+)\s*%[^.\n]{0,25}(?:forex|foreign\s+currency|markup|mark-up|cross.?currency)", re.I)
 _FUEL_RE = re.compile(r"fuel\s+surcharge\s+waiver[^.\n]{0,120}", re.I)
 _GST_RE  = re.compile(r"\+\s*gst|exclusive\s+of\s+gst|plus\s+applicable\s+taxes", re.I)
 # "Spend ₹2L or more in a year ... get your renewal fee waived" — amount precedes the waiver keyword
@@ -400,10 +415,26 @@ def _fees(md: str) -> dict:
             val = _num(m.group(1), m.group(2) or "")
             if val is not None and val >= 1000:
                 out["fee_waiver_spend_inr"] = val
+    if "fx_markup_pct" not in out:
+        if m := _FX_MARKUP_RE.search(md):
+            v = _num(m.group(1) or m.group(2))
+            if v is not None and 0 < v <= 10:        # plausible markup range
+                out["fx_markup_pct"] = v
     if m := _FUEL_RE.search(md):
         out["fuel_surcharge_waiver"] = _clean_text(m.group(0))
     if _GST_RE.search(md):
         out["gst_extra"] = True
+    # "Nil" / free fees: many cards state "Joining/Renewal Fee: Nil" or are "Lifetime
+    # Free". Capture these as ₹0 instead of leaving the field blank.
+    if "joining_fee_inr" not in out:
+        if _NIL_JOIN_RE.search(md):
+            out["joining_fee_inr"] = 0
+    if "annual_fee_inr" not in out and "renewal_fee_inr" not in out:
+        if _NIL_RENEW_RE.search(md):
+            out["renewal_fee_inr"] = 0
+    if _LIFETIME_FREE_RE.search(md):
+        out.setdefault("joining_fee_inr", 0)
+        out.setdefault("renewal_fee_inr", 0)
     return out
 
 
@@ -411,9 +442,22 @@ def _fees(md: str) -> dict:
 # Rewards  —  normalise everything to base_rate_pct (% of spend)
 # ─────────────────────────────────────────────────────────────
 
-# N points/miles per ₹X spend  (handles prefixes: "EDGE REWARD Points", "Reward Points", etc.)
+# Reward currency unit names — broad, NOT just "points": 6E Rewards, CashPoints,
+# NeuCoins, EDGE Miles, Reward Points, Cashback, Coins, Miles, etc.
+_RUNIT = (r"(?:reward\s*points?|cash\s*points?|cashpoints?|neu\s*coins?|neucoins?|"
+          r"edge\s*miles?|indus\s*miles?|membership\s+rewards?|kotak\s+points?|"
+          r"reward\s*miles?|rewards?|points?|coins?|miles?|cash\s*back|cashback)")
+# "N <unit> per ₹X [Spends] on <category>" — generic earn-rate line.
+# Groups: 1=rate, 2=unit, 3=spend, 4=trailing category text (optional)
+_EARN_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s+(?:[\w]+\s+){0,2}?(" + _RUNIT + r")"
+    r"\s+(?:per|for\s+every|on\s+every|/)\s*₹?\s*(?:rs\.?\s*)?([\d,]+)"
+    r"([^.\n]{0,80})?", re.I)
+# Legacy points-per-spend (kept for back-compat callers)
 _RP_PER_SPEND = re.compile(
     r"(\d+)\s+(?:\w+\s+){0,3}points?\s+(?:per|for\s+every|on\s+every)\s+[₹rs.]*\s*([\d,]+)", re.I)
+# Does the trailing text mean the BASE rate (all spends) rather than a category?
+_BASE_CAT_RE = re.compile(r"\b(all\s+(?:other\s+)?(?:spends?|retail|purchases?)|other\s+spends?|everywhere|every\s+spend)\b", re.I)
 # N% cashback on all spends (base rate)
 _CASHBACK_ALL = re.compile(r"([\d.]+)\s*%\s*cash\s*back\s+on\s+all", re.I)
 # N% cashback / reward on [specific category]  — also catches "5% on Swiggy"
@@ -452,26 +496,48 @@ def _rewards(md: str, issuer_id: Optional[str] = None) -> dict:
         pv = _KNOWN_POINT_VALUE[issuer_id]
         out["point_value_inr"] = pv
 
-    # Currency name (collapse any internal whitespace/newlines — "eDGE\nMiles" → "Edge Miles")
-    if m := _CURR_RE.search(md):
+    # ── Generic earn-rate engine: "N <unit> per ₹X [on <category>]" ──────────────
+    # Handles 6E Rewards / CashPoints / NeuCoins / Miles / Cashback, not just "points".
+    earn_acc, earn_seen, earn_unit = [], set(), None
+    for m in _EARN_RE.finditer(md):
+        rate, unit, spend = float(m.group(1)), m.group(2), _num(m.group(3))
+        trailing = (m.group(4) or "").strip(" :*-–").strip()
+        if not spend or spend <= 0:
+            continue
+        earn_unit = earn_unit or unit
+        # % value of this line: cashback units are already %; point/reward units use pv.
+        if re.search(r"cash\s*back", unit, re.I):
+            pct = round(rate / spend * 100, 4) if spend >= 100 else rate
+        else:
+            pct = round((pv or 0.25) * rate / spend * 100, 4)
+        if not trailing or _BASE_CAT_RE.search(trailing):
+            out.setdefault("base_rate_pct", pct)
+        else:
+            cat = re.sub(r"^(?:spends?\s+on|on)\s+", "", trailing, flags=re.I).strip(" .*")
+            cat = re.split(r"\bcapped\b|\bup\s+to\b|\(", cat, flags=re.I)[0].strip(" ,.&")
+            if cat and 2 < len(cat) < 70 and cat.lower() not in earn_seen:
+                earn_seen.add(cat.lower())
+                cap_m = _CAP_RE.search(trailing)
+                earn_acc.append({"category": cat, "rate_pct": pct,
+                                 "cap_inr": _num(cap_m.group(1)) if cap_m else None,
+                                 "notes": f"{m.group(1)} {unit.strip()} per ₹{m.group(3)}"})
+
+    # Currency name — prefer the unit actually used in earn lines, then _CURR_RE, then issuer default
+    if earn_unit and not re.search(r"cash\s*back", earn_unit, re.I):
+        out["currency"] = re.sub(r"\s+", " ", earn_unit).strip().title()
+    elif m := _CURR_RE.search(md):
         out["currency"] = re.sub(r"\s+", " ", m.group(1)).strip().title()
     elif issuer_id and issuer_id in _ISSUER_CURRENCY:
         out["currency"] = _ISSUER_CURRENCY[issuer_id]
 
-    # Base rate — points per spend
-    if m := _RP_PER_SPEND.search(md):
-        rp, spend = float(m.group(1)), _num(m.group(2))
-        if spend and spend > 0:
-            out["base_rate_pct"] = round((pv or 0.25) * rp / spend * 100, 4)
-
-    # Base rate — flat cashback on all spends
+    # Base rate — flat cashback on all spends (fallback if earn engine didn't set it)
     if not out.get("base_rate_pct"):
         if m := _CASHBACK_ALL.search(md):
             out["base_rate_pct"] = float(m.group(1))
             out.setdefault("currency", "Cashback")
 
-    # Accelerated / per-category rates
-    acc, seen = [], set()
+    # Accelerated / per-category rates (seed with earn-engine results)
+    acc, seen = list(earn_acc), set(earn_seen)
 
     # Cashback / reward % per category
     for m in _CASHBACK_CAT.finditer(md):
@@ -821,6 +887,31 @@ def _apply_url(md: str) -> Optional[str]:
 
 
 # ─────────────────────────────────────────────────────────────
+# Raw highlights — capture substantive benefit/reward/fee bullets VERBATIM so no
+# card detail is ever lost to imperfect normalization. (Schema/normalize later.)
+# ─────────────────────────────────────────────────────────────
+
+_BULLET_RE = re.compile(r"^\s*(?:[-*•]|\d+\.)\s+(.+)$", re.M)
+_HL_SIG = re.compile(
+    r"₹|\brs\.?\s*\d|\d\s*%|reward|point|mile|coin|cashback|cash\s*back|lounge|"
+    r"complimentary|voucher|free|discount|waiv|insurance|emi|fuel|golf|markup|"
+    r"membership|milestone|welcome|per\s*₹|spends?\s+on|cap(?:ped)?\b|annual\s+fee|"
+    r"joining\s+fee", re.I)
+
+def _highlights(md: str, limit: int = 50) -> list:
+    """Substantive benefit/reward/fee bullet lines, cleaned but kept verbatim."""
+    out, seen = [], set()
+    for m in _BULLET_RE.finditer(md):
+        line = _clean_text(m.group(1), limit=220)
+        key = line.lower()
+        if line and _HL_SIG.search(line) and key not in seen and 8 <= len(line) <= 220:
+            seen.add(key); out.append(line)
+        if len(out) >= limit:
+            break
+    return out
+
+
+# ─────────────────────────────────────────────────────────────
 # Core single-card parser
 # ─────────────────────────────────────────────────────────────
 
@@ -902,6 +993,8 @@ def _parse_one(md: str, base: dict) -> Optional[dict]:
     if pk := _perks(md):     card["perks"]          = pk
     if el := _eligibility(md): card["eligibility"]  = el
     if au := _apply_url(md): card["apply_url"]      = au
+    # Raw verbatim capture — nothing lost to normalization (schema comes later)
+    if hl := _highlights(md): card["highlights"]    = hl
 
     if not card.get("card_name"):
         return None
