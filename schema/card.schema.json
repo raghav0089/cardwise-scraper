@@ -91,10 +91,12 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "spend_inr":    { "type": "number" },
-          "period":       { "type": ["string", "null"], "enum": [null, "monthly", "quarterly", "half_yearly", "annual", "anniversary"] },
-          "reward_type":  { "type": ["string", "null"], "enum": [null, "points", "miles", "cashback", "voucher", "gift_card", "membership", "fee_waiver", "lounge", "flight_ticket"] },
-          "value_inr":    { "type": ["number", "null"] }
+          "spend_inr":     { "type": "number", "description": "spend threshold, e.g. 200000 for '₹2 lakhs'" },
+          "period":        { "type": ["string", "null"], "enum": [null, "monthly", "quarterly", "half_yearly", "annual", "anniversary"] },
+          "reward_type":   { "type": ["string", "null"], "enum": [null, "points", "miles", "cashback", "voucher", "gift_card", "membership", "fee_waiver", "lounge", "flight_ticket"] },
+          "reward_units":  { "type": ["number", "null"], "description": "reward units granted, e.g. 10000 in '10,000 reward points'" },
+          "value_inr":     { "type": ["number", "null"], "description": "₹ value of the reward" },
+          "incremental":   { "type": ["boolean", "null"], "description": "true if 'additional'/on top of a lower tier" }
         },
         "required": ["spend_inr"]
       }
@@ -105,6 +107,7 @@
       "additionalProperties": false,
       "properties": {
         "reward_type":  { "type": ["string", "null"], "enum": [null, "points", "miles", "cashback", "voucher", "gift_card", "membership", "fee_waiver"] },
+        "reward_units": { "type": ["number", "null"], "description": "reward units granted, e.g. 12500 points" },
         "value_inr":    { "type": ["number", "null"] },
         "min_spend_inr":{ "type": ["number", "null"] },
         "within_days":  { "type": ["integer", "null"] }
