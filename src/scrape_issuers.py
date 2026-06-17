@@ -35,6 +35,8 @@ def _is_scrapeable(u: str) -> bool:
     return True
 CFG = yaml.safe_load(Path("config/issuers.yaml").read_text())
 MAX_URLS_PER_ISSUER = int(os.getenv("MAX_URLS_PER_ISSUER", "150"))
+# Per-issuer curated fallback URL lists (config/fallback_urls/<id>.txt).
+_FALLBACK_DIR = Path("config/fallback_urls")
 
 
 def _same_site(a: str, b: str) -> bool:
@@ -150,6 +152,29 @@ def collect_detail_urls(issuer_ids: set[str] | None = None) -> list[dict]:
                     "issuer_type":issuer["type"],
                 })
             log.info("    harvested %d detail links from %s", len(added) - n_before, list_url)
+
+        # ── Curated fallback URLs ──────────────────────────────────────────────
+        # config/fallback_urls/<id>.txt is a hand-verifiable list of every known
+        # card URL for this issuer. Always merge it so a card is never missed when
+        # a sitemap/listing changes or breaks. These are added as DETAIL pages.
+        fb = _FALLBACK_DIR / f"{issuer['id']}.txt"
+        if fb.exists():
+            n_fb = 0
+            for line in fb.read_text().splitlines():
+                u = line.strip()
+                if not u or u.startswith("#") or u in added or not _is_scrapeable(u):
+                    continue
+                added.add(u)
+                out.append({
+                    "url":         u,
+                    "issuer_id":   issuer["id"],
+                    "issuer_name": issuer["name"],
+                    "issuer_type": issuer["type"],
+                    "is_listing":  False,
+                })
+                n_fb += 1
+            if n_fb:
+                log.info("    +%d card URL(s) from fallback file", n_fb)
 
     # global dedupe — if a URL appears both as a configured list page (is_listing=True)
     # and as a harvested detail link, the list-page entry wins so it gets section-split.
