@@ -590,14 +590,26 @@ def _has_data(v) -> bool:
     return v is not None
 
 
+# Field names that must never appear nested inside another field — small models
+# sometimes mis-nest the whole card under "rewards". Reject these as sub-keys.
+_TOP_LEVEL_NAMES = frozenset(_ENRICH_FIELDS) | {
+    "card_name", "issuer_id", "issuer_name", "source_url", "category", "card_id",
+}
+
+
 def _merge_enrich(base: dict, extra: dict) -> None:
     """Fill base's empty detail fields from extra (LLM). Rule-based always wins on
-    conflicts; for dicts we add only missing sub-keys; lists fill only when base empty.
-    Effectively-empty LLM values (all-None dicts, 'null' strings) are ignored."""
+    conflicts; for dicts we add only missing, legitimate sub-keys; lists fill only
+    when base empty. Effectively-empty values and mis-nested foreign keys are ignored."""
     for k in _ENRICH_FIELDS:
         bv, ev = base.get(k), extra.get(k)
         if not _has_data(ev):
             continue
+        if isinstance(ev, dict):
+            # Drop mis-nested foreign keys (e.g. an LLM nesting 'insurance' under 'rewards').
+            ev = {kk: vv for kk, vv in ev.items() if kk not in _TOP_LEVEL_NAMES}
+            if not _has_data(ev):
+                continue
         if not _has_data(bv):
             base[k] = ev
         elif isinstance(bv, dict) and isinstance(ev, dict):
