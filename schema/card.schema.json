@@ -1,110 +1,85 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "IndianCard",
-  "description": "Unified, detailed schema for an Indian payment card. Typed fields for the things people compare (fees, reward currency + value, named category rewards, named partner offers, lounge, insurance, EMI, forex), plus highlights[] keeping every raw line verbatim.",
+  "description": "Fully ATOMIC schema for an Indian payment card. Every value is a number, boolean, enum, or single token — no free-text sentences. Raw page text lives only in highlights[] (the audit source).",
   "type": "object",
   "required": ["card_id", "issuer_id", "card_name", "category", "source_url"],
   "properties": {
-    "card_id":          { "type": "string", "description": "issuer_id + '__' + slugified card_name" },
+    "card_id":          { "type": "string" },
     "issuer_id":        { "type": "string" },
     "issuer_name":      { "type": ["string", "null"] },
     "card_name":        { "type": "string" },
-    "card_variant":     { "type": ["string", "null"] },
-    "co_brand":         { "type": ["string", "null"], "description": "co-brand partner if any (Swiggy, Tata Neu, IndianOil, IndiGo, ...)" },
-    "card_material":    { "type": ["string", "null"], "enum": [null, "metal", "plastic", "virtual", "co-branded"] },
-    "network":          { "type": ["string", "null"], "enum": [null, "Visa", "Mastercard", "RuPay", "Amex", "Diners", "Discover"] },
-    "category":         { "type": "string", "enum": ["credit", "debit", "prepaid", "forex", "corporate", "business", "transit", "fuel", "other"] },
-    "segment":          { "type": ["string", "null"], "enum": [null, "entry", "mid", "premium", "super-premium", "invite-only", "student", "secured", "nri"] },
+    "co_brand":         { "type": ["string", "null"], "description": "single token: swiggy | tata_neu | indianoil | indigo | amazon | ..." },
+    "card_material":    { "type": ["string", "null"], "enum": [null, "metal", "plastic", "virtual"] },
+    "network":          { "type": ["string", "null"], "enum": [null, "visa", "mastercard", "rupay", "amex", "diners"] },
+    "category":         { "type": "string", "enum": ["credit", "debit", "prepaid", "forex", "corporate", "business"] },
+    "segment":          { "type": ["string", "null"], "enum": [null, "entry", "mid", "premium", "super_premium", "invite_only", "student", "secured", "nri"] },
     "status":           { "type": "string", "enum": ["active", "discontinued", "upcoming", "invite_only", "unknown"], "default": "active" },
 
     "fees": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "joining_fee_inr":        { "type": ["number", "null"] },
-        "annual_fee_inr":         { "type": ["number", "null"] },
-        "renewal_fee_inr":        { "type": ["number", "null"] },
-        "fee_waiver_spend_inr":   { "type": ["number", "null"], "description": "annual spend that waives the renewal fee" },
+        "joining_inr":            { "type": ["number", "null"] },
+        "annual_inr":             { "type": ["number", "null"] },
+        "renewal_inr":            { "type": ["number", "null"] },
+        "waiver_spend_inr":       { "type": ["number", "null"] },
         "lifetime_free":          { "type": ["boolean", "null"] },
-        "addon_card_fee_inr":     { "type": ["number", "null"] },
+        "addon_inr":              { "type": ["number", "null"] },
         "fx_markup_pct":          { "type": ["number", "null"] },
-        "cash_advance_fee_pct":   { "type": ["number", "null"] },
+        "cash_advance_pct":       { "type": ["number", "null"] },
         "finance_charge_pct_mo":  { "type": ["number", "null"] },
-        "reward_redemption_fee_inr": { "type": ["number", "null"] },
-        "fuel_surcharge_waiver":  { "type": ["string", "null"] },
-        "gst_extra":              { "type": ["boolean", "null"], "default": true }
+        "redemption_fee_inr":     { "type": ["number", "null"] },
+        "fuel_surcharge_waiver_pct": { "type": ["number", "null"] },
+        "fuel_waiver_cap_inr":    { "type": ["number", "null"] },
+        "gst_extra":              { "type": ["boolean", "null"] }
       }
     },
 
     "rewards": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "currency":          { "type": ["string", "null"], "description": "exact unit name: Cashback, Reward Points, CashPoints, NeuCoins, EDGE Miles, 6E Rewards, etc." },
-        "currency_value_inr":{ "type": ["number", "null"], "description": "₹ value of 1 unit (e.g. 1 point = ₹0.25, 1 NeuCoin = ₹1)" },
-        "base_rate_pct":     { "type": ["number", "null"], "description": "default earn rate as % of spend on all/other spends" },
-        "is_cashback":       { "type": ["boolean", "null"], "description": "true if reward is direct cashback (no point conversion)" },
-
-        "category_rewards": {
+        "currency":           { "type": ["string", "null"], "enum": [null, "cashback", "reward_points", "cashpoints", "neucoins", "edge_miles", "miles", "coins", "6e_rewards", "other"] },
+        "unit_value_inr":     { "type": ["number", "null"], "description": "₹ value of 1 unit" },
+        "base_rate_pct":      { "type": ["number", "null"] },
+        "is_cashback":        { "type": ["boolean", "null"] },
+        "expiry_months":      { "type": ["integer", "null"] },
+        "monthly_cap_inr":    { "type": ["number", "null"] },
+        "category_rewards":   {
           "type": "object",
-          "description": "Explicit, named spend categories. Each is { rate_pct, value_back_pct, cap_inr, cap_period, notes } — null/absent if the card has no special rate there.",
-          "properties": {
-            "dining":            { "$ref": "#/$defs/catReward" },
-            "swiggy":            { "$ref": "#/$defs/catReward" },
-            "zomato":            { "$ref": "#/$defs/catReward" },
-            "food_delivery":     { "$ref": "#/$defs/catReward" },
-            "fuel":              { "$ref": "#/$defs/catReward" },
-            "grocery":           { "$ref": "#/$defs/catReward" },
-            "online_shopping":   { "$ref": "#/$defs/catReward" },
-            "amazon":            { "$ref": "#/$defs/catReward" },
-            "flipkart":          { "$ref": "#/$defs/catReward" },
-            "myntra":            { "$ref": "#/$defs/catReward" },
-            "flights":           { "$ref": "#/$defs/catReward" },
-            "hotels":            { "$ref": "#/$defs/catReward" },
-            "travel":            { "$ref": "#/$defs/catReward" },
-            "international":      { "$ref": "#/$defs/catReward" },
-            "utilities":         { "$ref": "#/$defs/catReward" },
-            "bill_payments":     { "$ref": "#/$defs/catReward" },
-            "upi":               { "$ref": "#/$defs/catReward" },
-            "movies":            { "$ref": "#/$defs/catReward" },
-            "entertainment":     { "$ref": "#/$defs/catReward" },
-            "insurance":         { "$ref": "#/$defs/catReward" },
-            "rent":              { "$ref": "#/$defs/catReward" },
-            "education":         { "$ref": "#/$defs/catReward" },
-            "wallet_load":       { "$ref": "#/$defs/catReward" },
-            "departmental_store":{ "$ref": "#/$defs/catReward" },
-            "smartbuy_portal":   { "$ref": "#/$defs/catReward", "description": "bank reward portal (SmartBuy / iShop / Grab / Reward Hub)" }
-          },
-          "additionalProperties": { "$ref": "#/$defs/catReward" }
+          "description": "Named spend categories → atomic rate. Keys are a fixed token set; omit a key if no special rate.",
+          "additionalProperties": { "$ref": "#/$defs/catRate" },
+          "propertyNames": { "enum": [
+            "dining", "swiggy", "zomato", "food_delivery", "fuel", "grocery",
+            "online_shopping", "amazon", "flipkart", "myntra", "flights", "hotels",
+            "travel", "international", "utilities", "bill_payments", "upi", "movies",
+            "entertainment", "insurance", "rent", "education", "wallet_load",
+            "departmental_store", "smartbuy_portal", "wallet", "gaming"
+          ] }
         },
-
-        "accelerated": {
-          "type": "array",
-          "description": "Any earn rates that don't map to a named category above.",
-          "items": { "$ref": "#/$defs/catReward" }
-        },
-        "redemption_modes":  { "type": "array", "items": { "type": "string" } },
-        "transfer_partners": { "type": "array", "items": { "type": "string" }, "description": "airline/hotel point-transfer partners" },
-        "exclusions":        { "type": "array", "items": { "type": "string" }, "description": "categories earning NO reward" },
-        "expiry_months":     { "type": ["integer", "null"] },
-        "monthly_cap_inr":   { "type": ["number", "null"], "description": "overall monthly reward cap if any" }
+        "redemption_modes":   { "type": "array", "items": { "type": "string", "enum": ["statement_credit", "cashback", "flights", "hotels", "vouchers", "gift_cards", "merchandise", "smartbuy", "amazon_pay", "airmiles", "charity", "fuel", "bill_pay"] } },
+        "transfer_partners":  { "type": "array", "items": { "type": "string" } },
+        "exclusions":         { "type": "array", "items": { "type": "string", "enum": ["fuel", "rent", "wallet", "utilities", "insurance", "education", "government", "ewallet", "emi", "cash"] } }
       }
     },
 
     "partner_offers": {
       "type": "array",
-      "description": "Named brand offers (Swiggy, Zomato, Amazon, BookMyShow, MakeMyTrip, Cult.fit, ...).",
+      "description": "Atomic named-brand offers — no sentences.",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "partner":      { "type": "string" },
-          "offer_type":   { "type": ["string", "null"], "enum": [null, "cashback", "discount", "voucher", "membership", "bogo", "free_delivery", "other"] },
+          "partner":      { "type": "string", "description": "token: swiggy | zomato | amazon | bookmyshow | makemytrip | ola | uber | cult_fit | ..." },
+          "offer_type":   { "type": ["string", "null"], "enum": [null, "cashback", "discount", "voucher", "membership", "bogo", "free_delivery"] },
           "value_pct":    { "type": ["number", "null"] },
           "value_inr":    { "type": ["number", "null"] },
           "cap_inr":      { "type": ["number", "null"] },
-          "frequency":    { "type": ["string", "null"], "description": "e.g. per month, per order, 2 orders/month" },
           "min_spend_inr":{ "type": ["number", "null"] },
-          "detail":       { "type": "string" }
+          "frequency":    { "type": ["string", "null"], "enum": [null, "per_transaction", "daily", "monthly", "quarterly", "annual"] }
         },
-        "required": ["partner", "detail"]
+        "required": ["partner"]
       }
     },
 
@@ -112,93 +87,100 @@
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "spend_inr":  { "type": "number" },
-          "period":     { "type": ["string", "null"], "enum": [null, "monthly", "quarterly", "anniversary", "annual"] },
-          "reward":     { "type": "string" },
-          "value_inr":  { "type": ["number", "null"] }
-        }
+          "spend_inr":    { "type": "number" },
+          "period":       { "type": ["string", "null"], "enum": [null, "monthly", "quarterly", "half_yearly", "annual", "anniversary"] },
+          "reward_type":  { "type": ["string", "null"], "enum": [null, "points", "miles", "cashback", "voucher", "gift_card", "membership", "fee_waiver", "lounge", "flight_ticket"] },
+          "value_inr":    { "type": ["number", "null"] }
+        },
+        "required": ["spend_inr"]
       }
     },
 
     "welcome_benefit": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
+        "reward_type":  { "type": ["string", "null"], "enum": [null, "points", "miles", "cashback", "voucher", "gift_card", "membership", "fee_waiver"] },
         "value_inr":    { "type": ["number", "null"] },
         "min_spend_inr":{ "type": ["number", "null"] },
-        "within_days":  { "type": ["integer", "null"] },
-        "detail":       { "type": ["string", "null"] }
+        "within_days":  { "type": ["integer", "null"] }
       }
     },
 
     "lounge_access": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "domestic_visits_year":      { "type": ["integer", "null"] },
-        "international_visits_year": { "type": ["integer", "null"] },
-        "unlimited_domestic":        { "type": ["boolean", "null"] },
-        "unlimited_international":    { "type": ["boolean", "null"] },
-        "railway_lounge_year":       { "type": ["integer", "null"] },
-        "guest_allowed":             { "type": ["boolean", "null"] },
-        "program":                   { "type": ["string", "null"], "description": "Priority Pass / DreamFolks / LoungeKey / own network" },
-        "spend_unlock_inr":          { "type": ["number", "null"], "description": "min spend per period to unlock the visits" }
+        "domestic_year":          { "type": ["integer", "null"] },
+        "international_year":     { "type": ["integer", "null"] },
+        "unlimited_domestic":     { "type": ["boolean", "null"] },
+        "unlimited_international": { "type": ["boolean", "null"] },
+        "railway_year":           { "type": ["integer", "null"] },
+        "guest_allowed":          { "type": ["boolean", "null"] },
+        "program":                { "type": ["string", "null"], "enum": [null, "priority_pass", "dreamfolks", "loungekey", "own_network"] },
+        "spend_unlock_inr":       { "type": ["number", "null"] }
       }
     },
 
     "insurance": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "air_accident_inr":          { "type": ["number", "null"] },
-        "personal_accident_inr":     { "type": ["number", "null"] },
-        "lost_card_liability_inr":   { "type": ["number", "null"] },
-        "purchase_protection_inr":   { "type": ["number", "null"] },
-        "travel_insurance_inr":      { "type": ["number", "null"] },
-        "baggage_loss_inr":          { "type": ["number", "null"] },
-        "flight_delay_inr":          { "type": ["number", "null"] },
-        "credit_shield_inr":         { "type": ["number", "null"] }
+        "air_accident_inr":        { "type": ["number", "null"] },
+        "personal_accident_inr":   { "type": ["number", "null"] },
+        "lost_card_liability_inr": { "type": ["number", "null"] },
+        "purchase_protection_inr": { "type": ["number", "null"] },
+        "travel_inr":              { "type": ["number", "null"] },
+        "baggage_loss_inr":        { "type": ["number", "null"] },
+        "flight_delay_inr":        { "type": ["number", "null"] },
+        "credit_shield_inr":       { "type": ["number", "null"] }
       }
     },
 
     "emi": {
       "type": "object",
-      "description": "EMI / no-cost-EMI features (2nd most common feature in the data).",
+      "additionalProperties": false,
       "properties": {
-        "no_cost_emi":          { "type": ["boolean", "null"] },
-        "interest_free_days":   { "type": ["integer", "null"] },
-        "min_txn_inr":          { "type": ["number", "null"] },
-        "processing_fee":       { "type": ["string", "null"] },
-        "detail":               { "type": ["string", "null"] }
+        "no_cost_emi":        { "type": ["boolean", "null"] },
+        "interest_free_days": { "type": ["integer", "null"] },
+        "min_txn_inr":        { "type": ["number", "null"] },
+        "processing_fee_pct": { "type": ["number", "null"] }
       }
     },
 
     "forex": {
       "type": "object",
-      "description": "Forex / multi-currency features.",
+      "additionalProperties": false,
       "properties": {
         "markup_pct":           { "type": ["number", "null"] },
         "zero_markup":          { "type": ["boolean", "null"] },
         "multi_currency":       { "type": ["boolean", "null"] },
-        "supported_currencies": { "type": ["integer", "null"] },
-        "detail":               { "type": ["string", "null"] }
+        "supported_currencies": { "type": ["integer", "null"] }
       }
     },
 
     "perks": {
       "type": "array",
-      "description": "Everything else, normalized: golf, movie, concierge, spa, hotel memberships, subscriptions, vouchers, roadside assist, etc.",
+      "description": "Atomic: kind + optional brand token + numeric value/count. No sentences.",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "kind":   { "type": "string", "enum": ["golf", "movie", "dining", "spa", "concierge", "hotel", "subscription", "voucher", "gift_card", "railway_lounge", "roadside_assist", "annual_voucher", "contactless", "virtual_card", "buy_one_get_one", "other"] },
-          "value_inr": { "type": ["number", "null"] },
-          "detail": { "type": "string" }
+          "kind":       { "type": "string", "enum": ["golf_game", "golf_lesson", "movie", "dining_program", "spa", "concierge", "hotel_membership", "subscription", "voucher", "gift_card", "roadside_assist", "contactless", "virtual_card", "buy_one_get_one", "fuel_benefit", "wellness"] },
+          "brand":      { "type": ["string", "null"], "description": "token: amazon_prime | netflix | marriott_club | zomato_gold | swiggy_one | hotstar | ..." },
+          "value_inr":  { "type": ["number", "null"] },
+          "count_year": { "type": ["integer", "null"] },
+          "cap_inr":    { "type": ["number", "null"] }
         },
-        "required": ["kind", "detail"]
+        "required": ["kind"]
       }
     },
 
     "eligibility": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "min_age":              { "type": ["integer", "null"] },
         "max_age":              { "type": ["integer", "null"] },
@@ -211,11 +193,7 @@
       }
     },
 
-    "highlights": {
-      "type": "array",
-      "description": "Every substantive benefit/reward/fee line captured VERBATIM from the page — the audit trail and fallback for anything not yet normalized.",
-      "items": { "type": "string" }
-    },
+    "highlights":  { "type": "array", "items": { "type": "string" }, "description": "RAW verbatim page lines — audit source only; not a normalized field." },
 
     "apply_url":         { "type": ["string", "null"] },
     "image_url":         { "type": ["string", "null"] },
@@ -227,15 +205,13 @@
   },
 
   "$defs": {
-    "catReward": {
+    "catRate": {
       "type": "object",
-      "description": "Reward earned in a spend category.",
+      "additionalProperties": false,
       "properties": {
-        "rate_pct":       { "type": ["number", "null"], "description": "effective value-back % of spend" },
-        "raw_rate":       { "type": ["string", "null"], "description": "as stated, e.g. '10X points' or '5 CashPoints per ₹150'" },
-        "cap_inr":        { "type": ["number", "null"] },
-        "cap_period":     { "type": ["string", "null"], "enum": [null, "daily", "monthly", "quarterly", "annual", "statement", "per_transaction"] },
-        "notes":          { "type": ["string", "null"] }
+        "rate_pct":   { "type": ["number", "null"], "description": "effective value-back %" },
+        "cap_inr":    { "type": ["number", "null"] },
+        "cap_period": { "type": ["string", "null"], "enum": [null, "daily", "monthly", "quarterly", "annual", "statement", "per_transaction"] }
       }
     }
   }
