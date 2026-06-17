@@ -167,6 +167,10 @@ issuers:
   - id: bajaj
     name: Bajaj Finserv
     type: prepaid
+    cards:
+      - name: "Bajaj Finserv Insta EMI Card"
+        url: https://www.bajajfinserv.in/insta-emi-card
+        category: prepaid
     detail_urls:
       # RBL SuperCard partnership ended Nov 2024; DBS SuperCard ended Jun 2026
       # Only remaining card product is the Insta EMI Card (prepaid loan card)
@@ -341,6 +345,10 @@ issuers:
   - id: elixir
     name: Elixir
     type: neobank
+    cards:
+      - name: "Elixir Credit Card"
+        url: https://www.elixir.cards/
+        category: credit
     list_urls:
       - https://www.elixir.cards/
     detail_link_pattern: "/products/|/cards/"
@@ -450,6 +458,10 @@ issuers:
   - id: bank_of_india
     name: Bank of India
     type: bank
+    cards:
+      - name: "Bank of India Credit Card"
+        url: https://bankofindia.bank.in/credit-card
+        category: credit
     list_urls:
       - https://bankofindia.bank.in/credit-card
       - https://bankofindia.bank.in/debit-card
@@ -515,6 +527,10 @@ issuers:
   - id: dhanlaxmi_bank
     name: Dhanlaxmi Bank
     type: bank
+    cards:
+      - name: "Dhanlaxmi Bank Credit Card"
+        url: https://www.dhan.bank.in/credit-card/
+        category: credit
     cards:
       - name: "Dhanlaxmi Bank Credit Card"
         url: https://www.dhan.bank.in/credit-card/
