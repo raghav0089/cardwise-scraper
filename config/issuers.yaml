@@ -200,6 +200,10 @@ issuers:
   - id: indian_bank
     name: Indian Bank
     type: bank
+    cards:
+      - name: "Indian Bank Credit Card"
+        url: https://www.indianbank.in/departments/credit-card/
+        category: credit
     list_urls:
       - https://www.indianbank.in/departments/credit-card/
 
@@ -511,6 +515,10 @@ issuers:
   - id: dhanlaxmi_bank
     name: Dhanlaxmi Bank
     type: bank
+    cards:
+      - name: "Dhanlaxmi Bank Credit Card"
+        url: https://www.dhan.bank.in/credit-card/
+        category: credit
     list_urls:
       - https://www.dhan.bank.in/credit-card/
 
@@ -536,6 +544,10 @@ issuers:
   - id: dbs_india
     name: DBS Bank India
     type: bank
+    cards:
+      - name: "DBS Bank Credit Card"
+        url: https://www.dbs.bank.in/in/credit-cards/supercard.html
+        category: credit
     list_urls:
       - https://www.dbs.bank.in/in/credit-cards/default.html
       - https://www.dbs.bank.in/in/credit-cards/supercard.html
@@ -544,6 +556,10 @@ issuers:
   - id: equitas_sfb
     name: Equitas Small Finance Bank
     type: bank
+    cards:
+      - name: "Equitas Bank Credit Card"
+        url: https://equitas.bank.in/personal-banking/pay/credit-cards/
+        category: credit
     list_urls:
       - https://equitas.bank.in/personal-banking/pay/credit-cards/
 
