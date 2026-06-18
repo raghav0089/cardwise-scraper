@@ -113,8 +113,14 @@ _MARKETING_ARTICLE_RE = re.compile(
 
 def _clean_card_name(raw: str) -> str:
     """Turn a noisy Jina/SEO title into a clean card product name."""
-    # [Card Name](url) → Card Name
-    val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', raw).strip()
+    # [Card Name](url) → Card Name; strip ** bold markdown
+    val = re.sub(r'\*+', '', raw)
+    val = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', val).strip()
+    # Malformed/unclosed markdown link: "[Card Name ... ](https..." → "Card Name ..."
+    val = re.sub(r'^\s*\[', '', val)
+    val = re.sub(r'\]\(.*$', '', val).strip()
+    # Trailing CTA tail after the product name ("... * Pay Now with UPI")
+    val = re.sub(r'\s+(?:pay\s+now\s+with\s+upi|apply\s+now|pay\s+now).*$', '', val, flags=re.I).strip()
     # Strip sub-page heading prefixes that leak in ("Fees and Charges of X Card",
     # "Top Benefits of X Card", "Eligibility for X Card", "Features of X Card").
     val = re.sub(

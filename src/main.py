@@ -320,9 +320,19 @@ def _is_valid_card_name(name: str) -> bool:
     # Service/utility links mis-captured as cards ("Quick Credit Card services").
     if re.search(r'\b(services?|helpline|customer\s+care|quick\s+\w+\s+services?|login)\s*$', name, re.I):
         return False
-    # SEO / info / how-to pages that contain "card" but aren't products.
+    # Image/file names, markdown-link artifacts, URLs in the name.
+    if re.search(r'\.(jpg|jpeg|png|webp|gif|svg|pdf|html|aspx)\b|\]\(|https?:|\bwww\.', name, re.I):
+        return False
+    # Article / testimonial / info titles that mention "card" but aren't products.
     if re.search(r'^\s*(best|link|manage|cibil|smartloan|how\s+to|apply\s+for|'
-                 r'credit\s+meets|earn|get\s+your|why\s|what\s|compare)\b', name, re.I):
+                 r'credit\s+meets|earn|get\s+your|why\s|what\s|compare|things\s+to|'
+                 r'understand|prevent|making\s+the|buy\s+the|turn\s+your|grow\s+your|'
+                 r'your\s+woman|set\s+or\s+reset|green\s+pin|at\s+just|upgrade\s+to|'
+                 r'experience\s+our|benefits\s+with|thumb[_\s])', name, re.I):
+        return False
+    if re.search(r'unauthorised|unautorised|components\s+of|keep\s+in\s+mind|'
+                 r'how[\s\-]to[\s\-]use|terms\s+and\s+condition|e\s*mandate|'
+                 r'set\s*&?\s*reset|why\s+\w+\s+is\s+always|vs\s+cash', name, re.I):
         return False
     if re.search(r'\b(nominee|instant\s+callback|transaction\s+limit|meets\s+convenience|'
                  r'limit\s+guide|score\s+for|on\s+upi|documents?|seamless\s+transaction|'
