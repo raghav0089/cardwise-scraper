@@ -13,6 +13,7 @@ from .discover import discover_candidate_urls
 from .extract import extract_cards
 from .normalize import ensure_card_id, stamp, dedupe
 from . import store
+from .banks import get_extractor as _get_bank_extractor
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s :: %(message)s")
@@ -45,14 +46,37 @@ _SKIP_SEGS = frozenset({
     "sitemap", "legal", "press", "support", "help", "download", "lounge",
     "cancellation", "referral", "experience", "calculator", "festive",
     "offers", "offer", "app", "careers", "career",
+    # Static asset paths (images, fonts, scripts, etc.)
+    "static", "static-resources", "static-pages", "img", "images", "assets",
+    "fonts", "icons", "media", "svg",
+    # Non-product helper pages
+    "demo-videos", "demo-video",
+    # Tracking / apply-redirect paths (e.g. sbicard.com /sprint/c/*)
+    "sprint",
 })
 # Sub-string match within a segment (catches compound names like terms-and-conditions)
 _SKIP_SEG_RE = re.compile(
-    r"emi|terms|fee|charge|privacy|personal-loan|bill-pay|"
+    # Use \bemi\b so we don't accidentally block "premier", "premium", etc.
+    r"\bemi\b|terms|fee|charges|fees-and-charge|privacy|personal-loan|bill-pay|"
     r"customer-care|negative-balance|do-not-call|credit-builder|"
     r"credit-card-service|different-type|top-\d|lounge-access|"
     r"zero-forex|best-lifetime|best-international|best-secured|"
-    r"travel-credit-card|loan-on|balance-on",
+    r"travel-credit-card|loan-on|balance-on|"
+    r"report-block|lost-or-stolen|block-lost|stolen-card|"
+    r"upgrade-your|manage-your|know-your-card|"
+    r"how-to-apply|credit-card-tips|credit-card-guide|"
+    r"credit-score|cardmember-agreement|"
+    # Program/landing pages that are not individual card products
+    r"referral|pre-approved-credit|lifetime-free-credit|"
+    r"credit-card-against|best-credit-card|"
+    # Utility / non-product pages
+    r"apply-form|card-payment|network-guide|list-of-bc|"
+    r"pin-change|generate.*pin|ways-to-generate|activation-credit|"
+    # Informational / article pages (not card product pages)
+    r"settlement|balance-transfer|balance-conversion|"
+    r"paying-utility|utility-bill|what-is-upi|"
+    r"maximise.*offer|bogo|fuel-surcharge|"
+    r"income-tax|save.*dining|plan-your-trip",
     re.IGNORECASE,
 )
 _ALLOWED_DISCOVERY_DOMAINS = frozenset({
@@ -123,12 +147,58 @@ def gather_urls() -> list[dict]:
 
 # ── Fetch ─────────────────────────────────────────────────────────────────────
 
+# Issuer config lookup for supplement pages (fees/eligibility split onto sub-pages).
+try:
+    from .scrape_issuers import CFG as _CFG
+    _ISSUER_CFG = {i["id"]: i for i in _CFG.get("issuers", [])}
+except Exception:
+    _ISSUER_CFG = {}
+
+
+def _append_supplements(url: str, text: str, issuer_id: str | None) -> str:
+    """Fetch this issuer's configured supplement sub-pages (e.g. /fees-and-charges)
+    for the card URL and append their text, so split fee/eligibility data lands on
+    the same record. Best-effort: failures are ignored."""
+    cfg = _ISSUER_CFG.get(issuer_id or "")
+    suffixes = (cfg or {}).get("supplement_suffixes") or []
+    # If the main page already states fee figures, the fee sub-page is redundant — skip
+    # the extra fetch. Supplements exist to RESCUE cards whose main page omits fees.
+    if suffixes and re.search(r"(joining|annual|renewal)[^\n]{0,40}(₹|rs\.?\s*\d|inr\s*\d)", text, re.I):
+        return text
+    base = url.rstrip("/")
+    for suffix in suffixes:
+        sup_url = base + suffix
+        try:
+            res = fetch(sup_url)
+        except Exception as e:
+            log.debug("supplement fetch error %s: %s", sup_url, e)
+            continue
+        sup = (res.text or res.html or "") if res and res.ok else ""
+        if len(sup) < 200:
+            continue
+        first_line = sup[:200].split("\n")[0].lower()
+        if any(p in first_line for p in ("page not found", "404", "does not exist")):
+            continue
+        label = suffix.strip("/").replace("-", " ").upper()
+        text += f"\n\n## {label}\n{sup}"
+        log.info("    appended supplement %s (%d chars)", suffix, len(sup))
+    return text
+
+
 def fetch_page(row: dict) -> dict | None:
     url          = row["url"]
     is_discovery = row.get("is_discovery", False)
+    # Explicitly-configured cards (forced/detail_urls) bypass the URL pre-filters —
+    # the URL is hand-picked, so heuristics like the 'travel-credit-card' skip
+    # (meant for SEO pages) must not drop it.
+    explicit = bool(row.get("force_card_name"))
 
-    if not _should_fetch(url, is_discovery=is_discovery):
+    if not explicit and not _should_fetch(url, is_discovery=is_discovery):
         log.debug("pre-filter skip: %s", url)
+        return None
+    bank_ext = _get_bank_extractor(row.get("issuer_id"))
+    if not explicit and bank_ext and bank_ext.skip_url(url):
+        log.debug("bank-specific skip (%s): %s", row.get("issuer_id"), url)
         return None
 
     # Listing pages carry pre-fetched HTML from the URL-gather phase — reuse it
@@ -156,6 +226,12 @@ def fetch_page(row: dict) -> dict | None:
         log.info("404 content detected, skip: %s  (title: %r)", url, first_line[:80])
         return None
 
+    # Some banks split fees / eligibility onto dedicated sub-pages (e.g. IndusInd,
+    # HDFC: <card-url>/fees-and-charges). Fetch configured supplement pages for this
+    # issuer and append them so the parser/LLM see that data on the same record.
+    if not prefetched and not row.get("is_listing"):
+        text = _append_supplements(url, text, row.get("issuer_id"))
+
     sha = sha256(text)
     if not FORCE_REFRESH and store.source_unchanged(url, sha):
         log.info("unchanged, skip: %s", url)
@@ -171,6 +247,10 @@ def fetch_page(row: dict) -> dict | None:
         "markdown":    text,
         "sha":         sha,
         "etag":        etag,
+        # forced single-card (neobanks / product names lacking the word 'card')
+        "force_card_name": row.get("force_card_name"),
+        "force_category":  row.get("force_category"),
+        "force_network":   row.get("force_network"),
     }
 
 
@@ -183,14 +263,38 @@ _BAD_NAME_RE = re.compile(
     r'^(page[\s-]?not[\s-]?found|404\b|have\s+you\b|we\s+(are|re|were)\b|'
     r'existing\s+card|additional\s+benefit|savings?\s+calculat|'
     r'new\s+feature|about\s+|faq\b|important[\s:]+|note[\s:]+|'
-    r'introducing\b|happy\s+to|pleased\s+to)',
+    r'introducing\b|happy\s+to|pleased\s+to|'
+    r'report\s*(?:&|and)?\s*block|lost\s+or\s+stolen|block\s+(?:lost|stolen)|'
+    r'how\s+to|manage\s+your|upgrade\s+your|apply\s+for\s+(?:a\s+)?(?:hdfc|sbi|icici|axis|kotak)|'
+    # Generic page-section headings starting with "Credit/Debit Card ..."
+    r'(?:credit|debit)\s+card\s+(?:benefits?|features?|faqs?|offers?|types?|blogs?|'
+    r'basics?|rewards?|services?|tips?|guide|insurance|eligib|interest|limit\s+incr|'
+    r'pin\b|block|closur|application|apply|vs\b|against\b|bill\s+pay)|'
+    # Descriptive/educational headings that sneak "card" in
+    r'understanding\s|outstanding\s+amount|instant\s+emi|below\s+are\s|'
+    r'type\s+of\s+(?:credit|debit)|difference\s+between|what\s+is\s+credit|'
+    # SEO page-title patterns that are not product names
+    r'best\s+credit\s+card|make\s+your\s|track\s+your\s|instant\s+and\s+easy|'
+    r'list\s+of\s+bc|list\s+of\s+business)',
     re.I,
 )
 
 # These words anywhere in the name mean it's a page section, not a product.
 _REJECT_SUBSTR_RE = re.compile(
     r'\b(calculator|eligibility\s+check|comparison|activate|activation|'
-    r'apply\s+now|know\s+more|click\s+here)\b',
+    r'apply\s+now|know\s+more|click\s+here|apply\s+for\b|'
+    r'report\s+(?:&|and)?\s*block|lost\s+or\s+stolen|quickly\b|'
+    r'availability\s+guide|ways\s+to\s+generate|payments?\s+instantly)\b|'
+    r'\bvs\.?\s+(?:debit|credit|bnpl|upi|prepaid)\b',
+    re.I,
+)
+
+# Generic, non-product names: an add-on/supplementary card, or the bare category
+# with no product identity ("Credit Card", "Add On Card", "Supplementary Card").
+_JUNK_NAME_RE = re.compile(
+    r'^(?:the\s+)?(?:'
+    r'add[\s-]?on|addon|supplementary|additional|primary|secondary'
+    r')?\s*(?:credit|debit|prepaid|forex|business|corporate)?\s*card$',
     re.I,
 )
 
@@ -202,16 +306,57 @@ def _is_valid_card_name(name: str) -> bool:
         return False
     if '?' in name:           # activation prompts, FAQ entries
         return False
+    if "://" in name or name.startswith("//"):  # URL stored as card name
+        return False
     if _BAD_NAME_RE.match(name):
         return False
     if _REJECT_SUBSTR_RE.search(name):
         return False
     if not _CARD_KW_RE.search(name):
         return False
+    # Generic non-products ("Add On Card", "Credit Card") — no brand/product identity.
+    if _JUNK_NAME_RE.match(name):
+        return False
+    # Service/utility links mis-captured as cards ("Quick Credit Card services").
+    if re.search(r'\b(services?|helpline|customer\s+care|quick\s+\w+\s+services?|login)\s*$', name, re.I):
+        return False
+    # Image/file names, markdown-link artifacts, URLs in the name.
+    if re.search(r'\.(jpg|jpeg|png|webp|gif|svg|pdf|html|aspx)\b|\]\(|https?:|\bwww\.', name, re.I):
+        return False
+    # Article / testimonial / info titles that mention "card" but aren't products.
+    if re.search(r'^\s*(best|link|manage|cibil|smartloan|how\s+to|apply\s+for|'
+                 r'credit\s+meets|earn|get\s+your|why\s|what\s|compare|things\s+to|'
+                 r'understand|prevent|making\s+the|buy\s+the|turn\s+your|grow\s+your|'
+                 r'your\s+woman|set\s+or\s+reset|green\s+pin|at\s+just|upgrade\s+to|'
+                 r'experience\s+our|benefits\s+with|thumb[_\s])', name, re.I):
+        return False
+    if re.search(r'unauthorised|unautorised|components\s+of|keep\s+in\s+mind|'
+                 r'how[\s\-]to[\s\-]use|terms\s+and\s+condition|e\s*mandate|'
+                 r'set\s*&?\s*reset|why\s+\w+\s+is\s+always|vs\s+cash', name, re.I):
+        return False
+    if re.search(r'\b(nominee|instant\s+callback|transaction\s+limit|meets\s+convenience|'
+                 r'limit\s+guide|score\s+for|on\s+upi|documents?|seamless\s+transaction|'
+                 r'\bguide\b|nbsp|cli\b)\b|[*_]{2}', name, re.I):
+        return False
+    # Generic category pages, not products ("Movie Ticket Credit Card", "Fuel Credit Card").
+    if re.match(r'^(?:best\s+)?(?:movie(?:\s+ticket)?|shopping|fuel|travel|online(?:\s+shopping)?|'
+                r'airport(?:\s+lounge)?(?:\s+access)?|lifetime\s+free|cashback|rewards?|dining|'
+                r'lounge|entertainment|premium|super\s+premium)\s+(?:credit|debit)\s+card$',
+                name, re.I):
+        return False
+    # A real product name has a distinctive word beyond the generic category terms.
+    distinctive = re.sub(
+        r'\b(the|a|an|add[\s-]?on|addon|supplementary|'
+        r'credit|debit|prepaid|forex|business|corporate|card|bank|rupay|visa|'
+        r'mastercard|amex|diners)\b', '', name, flags=re.I).strip()
+    if len(distinctive) < 3:
+        return False
     return True
 
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
+
+_LOWERCASE_ID_RE = re.compile(r'^[a-z0-9_]+$')
 
 def purge_invalid_cards() -> None:
     """Delete DDB records whose card_name would fail validation (garbage from bad extractions)."""
@@ -220,7 +365,27 @@ def purge_invalid_cards() -> None:
         return
     deleted = 0
     for c in all_cards:
-        name = (c.get("card_name") or "").strip()
+        name  = (c.get("card_name") or "").strip()
+        raw_iid = c.get("issuer_id")
+        # Non-string issuer_id (e.g. YAML boolean True from `id: yes`) — purge
+        if not isinstance(raw_iid, str):
+            store.delete_card(c["card_id"])
+            log.info("purged non-string issuer_id record: %s  (issuer_id=%r name=%r)", c["card_id"], raw_iid, name)
+            deleted += 1
+            continue
+        iid = raw_iid.strip()
+        # Discovery-phase cards land with issuer_id=None → stored as "unknown" — purge them
+        if not iid or iid == "unknown":
+            store.delete_card(c["card_id"])
+            log.info("purged unknown issuer_id record: %s  (name=%r)", c["card_id"], name)
+            deleted += 1
+            continue
+        # LLM extractions sometimes write uppercase/malformed issuer_id — purge them
+        if not _LOWERCASE_ID_RE.match(iid):
+            store.delete_card(c["card_id"])
+            log.info("purged bad issuer_id record: %s  (issuer_id=%r name=%r)", c["card_id"], iid, name)
+            deleted += 1
+            continue
         if not _is_valid_card_name(name):
             store.delete_card(c["card_id"])
             log.info("purged garbage record: %s  (name=%r)", c["card_id"], name)
@@ -246,8 +411,14 @@ def process_page(page: dict) -> list[dict]:
             log.info("rejected bad card_name %r from %s", name, page["source_url"])
             continue
         c["raw_text_sha256"] = page["sha"]
-        c.setdefault("issuer_id",   page.get("issuer_id"))
-        c.setdefault("issuer_name", page.get("issuer_name"))
+        # Always trust the configured issuer from our YAML, not whatever the LLM returns.
+        # LLMs hallucinate wrong bank names when a listing page shows competitor card ads.
+        if page.get("issuer_id"):
+            c["issuer_id"] = page["issuer_id"]
+        if page.get("issuer_name"):
+            c["issuer_name"] = page["issuer_name"]
+        c.setdefault("issuer_id",   None)
+        c.setdefault("issuer_name", None)
         c = stamp(ensure_card_id(c))
         existing = store.get_existing(c["card_id"])
         if existing:

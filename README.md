@@ -21,11 +21,13 @@ GH cron ───►│  src/main.py (orchestrator) │
                │                      │
                └──────────┬───────────┘
                           ▼
-                fetch.py  ──► Firecrawl (JS-rendered) → fallback requests
+                fetch.py  ──► Jina AI Reader (JS-rendered → markdown) → fallback requests
                           ▼
                 S3  archive raw HTML  (s3://$S3_BUCKET/raw/YYYY-MM-DD/…)
                           ▼
-                extract.py (OpenAI structured output → schema/card.schema.json)
+                extract.py:  rule-based parser (parse.py, no API)  [primary]
+                             → optional local-LLM enrich/fallback (Ollama, FREE)
+                             → paid LLMs only if ALLOW_PAID_LLM=1 (default OFF)
                           ▼
                 normalize.py (card_id, dedupe, fuzzy-merge variants)
                           ▼
@@ -62,36 +64,68 @@ Optionally add a GSI on `cards_changes` (`card_id`, `detected_at`) for
 | --- | --- |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | DDB + S3 writer (least-privilege IAM) |
 | `S3_BUCKET` | e.g. `plenti-cards-raw` (raw HTML archive) |
-| `OPENAI_API_KEY` | structured extraction (gpt-4o-mini default) |
-| `FIRECRAWL_API_KEY` | optional but strongly recommended for SPA sites (CRED, OneCard, Jupiter) |
+| `OPENAI_API_KEY` / `GROQ_API_KEY` / `GEMINI_API_KEY` | **optional** — paid LLM fallback, only used when `ALLOW_PAID_LLM=1`. Extraction works without any of these (rule-based + local Ollama). |
+
+## Extraction & cost model
+
+The rule-based parser (`parse.py`) runs first and needs **no API and no money**.
+LLMs are optional:
+
+| Env | Default | Effect |
+| --- | --- | --- |
+| `ALLOW_PAID_LLM` | `0` (off) | Gemini/Groq/OpenAI are **never** called unless set to `1`. |
+| `ENRICH_WITH_LLM` | `0` (off) | Depth pass: after rule-based extraction, run the **free local Ollama** and merge its values to fill empty detail fields (fees/rewards/lounge/…). Identity fields stay rule-based; rule-based wins on conflicts. Slow (~15–48s/page). |
+| `OLLAMA_MODEL` | `qwen2.5:7b` | Local model. `llama3.2:latest` is ~3–4× faster. |
+| `LLM_MAX_CHARS` | `9000` | Cap on page text sent to the local model (small models degrade on long context). |
+
+Ollama must be running locally (`ollama serve`) for the free LLM paths.
 
 ## Running locally
 
 ```bash
 pip install -r requirements.txt
 
-# scrape only known issuers
+# scrape only known issuers (rule-based only, no LLM, no cost)
 RUN_MODE=issuers python -m src.main
 
-# only blog/news discovery
-RUN_MODE=discover python -m src.main
+# MAX completeness — free local depth pass, never billed, repopulates DDB
+env $(grep -v '^#' .env | xargs) \
+  ENRICH_WITH_LLM=1 OLLAMA_MODEL=llama3.2:latest FORCE_REFRESH=1 \
+  python -m src.main > out/run.log 2>&1 &
+
+# per-issuer discovery diagnostic (no DDB / no LLM / no paid calls)
+python -m scripts.coverage            # all issuers → out/coverage.json
+python -m scripts.coverage hdfc sbi   # subset
 
 # scrape one URL (debugging)
-RUN_MODE=single SINGLE_URL=https://www.hdfcbank.com/.../infinia python -m src.main
+RUN_MODE=single SINGLE_URL=https://www.hdfc.bank.in/credit-cards/infinia python -m src.main
 ```
 
 ## Adding a new issuer
 
-Edit `config/issuers.yaml`, add a block:
+Edit `config/issuers.yaml`. Two discovery styles:
 
 ```yaml
+# A) Full issuer with many cards — harvest a listing page or sitemap
 - id: new_bank
   name: NewBank
-  type: neobank
+  type: bank
+  sitemap_url: "https://newbank.in/sitemap.xml"   # optional, most complete
   list_urls:
-    - https://newbank.in/cards
-  detail_link_pattern: "/cards/.+"
+    - https://newbank.in/credit-cards             # harvested for card links
+  detail_link_pattern: "/credit-cards/[a-z0-9-]+-card$"
+
+# B) Co-brand / single-card issuer — point straight at the card page(s).
+#    `detail_urls` are parsed AS detail pages with NO sibling harvesting, so the
+#    issuer does NOT vacuum up the parent bank's whole sitemap via nav menus.
+- id: brand_x_axis
+  name: Brand X Axis Bank Credit Card
+  type: cobrand
+  detail_urls:
+    - https://www.axis.bank.in/cards/credit-card/brand-x-axis-bank-credit-card
 ```
+
+Run `python -m scripts.coverage <id>` to check how many card URLs discovery finds.
 
 That's it. Next scheduled run will pick it up.
 

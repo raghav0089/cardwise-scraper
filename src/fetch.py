@@ -21,8 +21,31 @@ log = logging.getLogger(__name__)
 UA      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
 TIMEOUT = 30
 
-# Minimum seconds between Jina requests — free tier allows ~20 req/min
-JINA_MIN_INTERVAL = 3.5   # ~17 req/min, safe under the 20/min free limit
+# A free Jina API key (https://jina.ai/reader) raises the rate limit from ~20 RPM
+# (keyless) to ~200+ RPM and authenticates requests. Set JINA_API_KEY to use it.
+import os as _os
+JINA_API_KEY = _os.getenv("JINA_API_KEY", "").strip()
+
+# Minimum seconds between Jina requests. Keyless free tier ~20 RPM → 3.5s; with an
+# API key the limit is far higher, so we can go much faster. Override via JINA_MIN_INTERVAL.
+JINA_MIN_INTERVAL = float(_os.getenv(
+    "JINA_MIN_INTERVAL", "0.4" if JINA_API_KEY else "3.5"))
+
+# Hosts where Jina can't render meaningful content (SPA with broken SSR router)
+# but direct requests returns SSR HTML with card data embedded.
+JINA_BYPASS_HOSTS: frozenset[str] = frozenset({
+    "www.axis.bank.in",
+    "axis.bank.in",
+    # PSU / SFB / payments banks whose heavy *.bank.in sites Jina can't render but
+    # plain requests returns full SSR HTML with the card links/content.
+    "www.unionbankofindia.bank.in", "www.indianbank.in",
+    "bankofmaharashtra.bank.in", "centralbank.bank.in", "www.cityunionbank.com",
+    "www.dhan.bank.in", "www.dbs.bank.in", "equitas.bank.in", "www.jana.bank.in",
+    "www.ujjivansfb.bank.in", "www.nainitalbank.bank.in",
+    "www.airtelpayments.bank.in", "www.fino.bank.in",
+    # Amex India — Jina flaky on americanexpress.com, direct requests returns full HTML
+    "www.americanexpress.com", "americanexpress.com",
+})
 
 STRICT_PROXY_DOMAINS: frozenset[str] = frozenset({
     # Major private / PSU banks (legacy domains)
@@ -87,26 +110,33 @@ def _try_jina(url: str) -> Optional[FetchResult]:
     jina_url = f"https://r.jina.ai/{url}"
     t0 = time.monotonic()
     try:
-        r = requests.get(
-            jina_url,
-            headers={
-                "User-Agent": UA,
-                "Accept": "text/markdown,text/plain,*/*",
-                # Strip nav/header/footer so card content isn't buried under 8K+ of nav menus.
-                # Critical for HDFC bank.in and other SPA banks that render huge nav dropdowns.
-                "X-Remove-Selector": "nav, header, footer, .mega-menu, .nav-menu, .navigation",
-                # Append a compact links section to the markdown — improves link harvest
-                # on sites whose card links are spread across JS-rendered components.
-                "X-With-Links-Summary": "true",
-            },
-            timeout=TIMEOUT,
-        )
+        headers = {
+            "User-Agent": UA,
+            "Accept": "text/markdown,text/plain,*/*",
+            # Strip nav/header/footer so card content isn't buried under 8K+ of nav menus.
+            # Critical for HDFC bank.in and other SPA banks that render huge nav dropdowns.
+            "X-Remove-Selector": "nav, header, footer, .mega-menu, .nav-menu, .navigation",
+            # Append a compact links section to the markdown — improves link harvest
+            # on sites whose card links are spread across JS-rendered components.
+            "X-With-Links-Summary": "true",
+        }
+        if JINA_API_KEY:
+            headers["Authorization"] = f"Bearer {JINA_API_KEY}"
+        r = requests.get(jina_url, headers=headers, timeout=TIMEOUT)
         elapsed = time.monotonic() - t0
         if r.status_code == 429:
             log.warning("jina rate-limited (429) for %s — will back off", url)
             time.sleep(10)   # back off before next call
             return FetchResult(error="jina 429", status_code=429)
         if r.status_code == 200 and r.text:
+            # Detect SPA 404 shells — Jina renders JavaScript but gets "Page Not Found"
+            # (e.g. axis.bank.in which has SSR content but a broken SPA router)
+            first300 = r.text[:300].lower()
+            if ("page not found" in first300 or
+                    "warning: target url returned error 404" in first300 or
+                    "error 404" in first300):
+                log.warning("jina returned 404-page content for %s", url)
+                return FetchResult(error="jina_spa_404", status_code=404)
             log.debug("jina ok %.1fs %s", elapsed, url)
             return FetchResult(text=r.text, html=r.text, status_code=200)
         return FetchResult(error=f"jina status {r.status_code}", status_code=r.status_code)
@@ -153,15 +183,29 @@ def _try_requests(url: str) -> FetchResult:
 def fetch(url: str, *, prefer: str = "auto") -> FetchResult:
     log.info("fetch → %s", url)
     t0    = time.monotonic()
+    host  = urlparse(url).hostname or ""
     root  = _root_domain(url)
     strict = root in STRICT_PROXY_DOMAINS
+
+    # SPA sites where Jina can't render content — use direct requests only.
+    if host in JINA_BYPASS_HOSTS:
+        try:
+            result = _try_requests(url)
+            log.info("fetch ok (requests/spa-bypass, %.1fs) %s", time.monotonic() - t0, url)
+            return result
+        except Exception as e:
+            log.warning("fetch error (requests/spa-bypass, %.1fs) %s: %s", time.monotonic() - t0, url, e)
+            return FetchResult(error=str(e))
 
     if prefer != "requests":
         result = _try_jina(url)
         if result and result.ok:
             log.info("fetch ok (jina, %.1fs) %s", time.monotonic() - t0, url)
             return result
-        if strict:
+        # Allow direct-requests fallback even on strict domains when Jina returned a
+        # "Page Not Found" SPA shell — the SSR content is in the raw HTML.
+        jina_spa_404 = result and result.error == "jina_spa_404"
+        if strict and not jina_spa_404:
             log.warning("fetch failed strict domain (%.1fs) %s: %s",
                         time.monotonic() - t0, url,
                         result.error if result else "no result")

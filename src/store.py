@@ -14,7 +14,9 @@ BUCKET        = (os.getenv("S3_BUCKET")         or "").strip()
 _CARDS_NAME   = (os.getenv("DDB_CARDS_TABLE")   or "cards_master").strip()
 _SOURCES_NAME = (os.getenv("DDB_SOURCES_TABLE") or "cards_sources").strip()
 
-_AWS_ENABLED  = bool(REGION and _CARDS_NAME)
+# DISABLE_STORE=1 forces all DDB/S3 ops to no-op (local validation runs). Note:
+# AWS_REGION="" alone does NOT disable — REGION falls back to a default above.
+_AWS_ENABLED  = bool(REGION and _CARDS_NAME) and os.getenv("DISABLE_STORE") != "1"
 
 # Lazy singletons — created on first use, never at import time
 _dynamodb  = None
